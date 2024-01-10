@@ -16,3 +16,4 @@
 /Nostr_relay/target
 /Nostr_relay/data
 /Nostr_relay/Cargo.lock
+.vscode/settings.json
