@@ -12,3 +12,8 @@
 # already existing elements were commented out
 
 #/target
+
+/Nostr_relay/target
+/Nostr_relay/data
+/Nostr_relay/Cargo.lock
+.vscode/settings.json
