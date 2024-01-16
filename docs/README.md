@@ -1,22 +1,30 @@
 # Architecture
 
+
+
 <figure><img src=".gitbook/assets/image.png" alt=""><figcaption><p>Architecture</p></figcaption></figure>
 
 
 
 ## LMDB
 
-LMDB (Lightning Memory-Mapped Database) is a high-performance key-value store database library. It was developed by Symas Corporation and is designed for use in embedded systems and high-performance applications. LMDB provides a reliable, efficient, and lightweight solution for storing and retrieving data.LMDB uses memory-mapped files for storage, which allows direct access to the data in memory without the need for additional memory copies. This approach provides excellent performance and scalability, making LMDB suitable for applications that require fast data access and low latency.Key features of LMDB include:
+LMDB (Lightning Memory-Mapped Database) is a high-performance key-value store database library. It was developed by Symas Corporation and is designed for use in embedded systems and high-performance applications. LMDB provides a reliable, efficient, and lightweight solution for storing and retrieving data.
 
-1. 1.Transactions: LMDB supports multi-threaded access and concurrent transactions, ensuring data consistency and integrity.
-2. 2.ACID (Atomicity, Consistency, Isolation, Durability) properties: LMDB provides transactional support with atomic updates, ensuring data integrity.
-3. 3.Memory efficiency: LMDB is highly memory-efficient because it uses memory-mapped files and supports memory-mapped databases. It avoids unnecessary memory copies and cache thrashing.
-4. 4.High performance: LMDB is optimized for speed and can handle a large number of concurrent reads and writes efficiently.
-5. 5.Small footprint: The LMDB library is compact and has a minimal dependency footprint, making it easy to integrate into applications.
-6. 6.Crash recovery: LMDB maintains a consistent state even in the event of a system crash. It provides mechanisms to recover data integrity and consistency after a failure.
-7. 7.Cross-platform support: LMDB is available for various platforms, including Linux, Windows, macOS, and other UNIX-like systems.
+LMDB uses memory-mapped files for storage, which allows direct access to the data in memory without the need for additional memory copies. This approach provides excellent performance and scalability, making LMDB suitable for applications that require fast data access and low latency.
 
-LMDB is often used in applications that require fast and efficient data storage, such as databases, caching systems, message queues, and other high-performance systems.​
+Key features of LMDB include:
+
+1. Transactions: LMDB supports multi-threaded access and concurrent transactions, ensuring data consistency and integrity.
+2. ACID (Atomicity, Consistency, Isolation, Durability) properties: LMDB provides transactional support with atomic updates, ensuring data integrity.
+3. Memory efficiency: LMDB is highly memory-efficient because it uses memory-mapped files and supports memory-mapped databases. It avoids unnecessary memory copies and cache thrashing.
+4. High performance: LMDB is optimized for speed and can handle a large number of concurrent reads and writes efficiently.
+5. Small footprint: The LMDB library is compact and has a minimal dependency footprint, making it easy to integrate into applications.
+6. Crash recovery: LMDB maintains a consistent state even in the event of a system crash. It provides mechanisms to recover data integrity and consistency after a failure.
+7. Cross-platform support: LMDB is available for various platforms, including Linux, Windows, macOS, and other UNIX-like systems.
+
+LMDB is often used in applications that require fast and efficient data storage, such as databases, caching systems, message queues, and other high-performance systems.
+
+
 
 ## Gossip
 
@@ -33,13 +41,13 @@ Gossip protocols have several characteristics that make them useful in distribut
 
 Gossip protocols find applications in various distributed systems, such as peer-to-peer networks, distributed databases, distributed storage systems, and decentralized consensus algorithms. They provide a scalable and fault-tolerant approach to disseminate information and keep nodes in the network synchronized.
 
+
+
 ## Nostr
 
 Nostr is a protocol, designed for simplicity, that aims to create a censorship-resistant global social network.
 
 The protocol is based on very simple & flexible `event` objects (which are passed around as plain JSON) and uses standard elliptic-curve cryptography for keys and signing. The only supported transport is websockets connections from clients to relays. This makes it easy to write clients and relays and promotes software diversity.
-
-
 
 
 
@@ -50,4 +58,6 @@ clock is a very important part of the whole system. How to determine the sequenc
 1. Lamport Clock (Lamport Clock) : Lamport clock is a logical clock algorithm proposed by Leslie Lamport in 1978. Each process maintains an incremental counter, and when a process executes an event, its logical clock increases. The Lamport clock provides some order in the order in which events occur, but does not capture the true order of events.
 2. Vector Clock: A vector clock is a logical clock algorithm proposed by Collin Fidge in 1988. Each process maintains a vector where each element corresponds to a process in the system, and the value of the vector represents the logical clock of that process. When a process executes an event, its vector clock is updated accordingly. Vector clocks provide more ordering information and can capture causal relationships between events.
 3. Physical Clock: The physical clock refers to the real time measurement. The logical clock is an abstract concept used to sequentialize the sequence of events in a distributed system. Here are some common logical clocks
+
+
 
