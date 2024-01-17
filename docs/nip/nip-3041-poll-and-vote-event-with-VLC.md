@@ -1,6 +1,6 @@
-# NIP-3041 - Poll & Vote Event with logic clock
+# NIP-3041 - Poll & Vote Event with VLC
 
-> Poll and vote events with logic clock in a p2p network. Polls are directly integrated into message events kind 301(original kind 1), and responses are vote events kind 309(original kind 9). A modified version of Event Counts (NIP-45) is used to implement the query of logic clock for a specific SID in relay.
+> Poll and vote events with VLC in a p2p network. Polls are directly integrated into message events kind 301(original kind 1), and responses are vote events kind 309(original kind 9). A modified version of Event Counts (NIP-45) is used to implement the query of VLC for a specific SID in relay.
 
 
 
@@ -14,7 +14,7 @@ To create a poll, include a `poll` tag in the message event. with the following 
 tag: poll
 options:
  - <multi|single> allow others to reply with one or multiple options
- - <clock> LC(in depth|logic clock) when surv expires,0 LC the uplimit of logic clock(2M)
+ - <clock> LC(in depth|VLC) when surv expires,0 LC the uplimit of VLC(2M)
  - <title>event name
  - <info>optional Poll & Vote information ("" if not present)
  - [<option>]: array of string
@@ -69,13 +69,13 @@ options:
 
 #### State Query
 
-Relays implement Poll & Vote should to count the result of Vote, to simplify the design, the logic clock will not be responsible for state-related calculations. The format of the State Query is the following:
+Relays implement Poll & Vote should to count the result of Vote, to simplify the design, the VLC will not be responsible for state-related calculations. The format of the State Query is the following:
 
 ```
 ["QUERY", <Specific SID>]
 ```
 
-Results are returned using a RESULT response in the form {"Option": } with logic clock
+Results are returned using a RESULT response in the form {"Option": } with VLC
 
 ```
 ["QUERY", <Specific SID>,<clock>,<clock_depth>, {"Option 1": <integer>,"Option 2": <integer>,"Option 3": <integer>...}]
