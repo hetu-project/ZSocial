@@ -1,6 +1,8 @@
 # Table of contents
 
-* [Architecture](README.md)
-* [Tutorial](tutorial.md)
+* [What`s Zsocial](README.md)
+* [Architecture](Architecture.md)
 * [NIP](nip/README.md)
-  * [NIP-3041 - Poll & Vote Event with logic clock](nip/nip-3041-poll-and-vote-event-with-logic-clock.md)
+  * [NIP-3041 - Poll & Vote Event with VLC](nip/nip-3041-poll-and-vote-event-with-VLC.md)
+* [Tutorial](tutorial.md)
+  * [Implemtation on Nostr](Howto.md)
