@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package zchronod;
+
+service zchronod {
+  rpc send(ZchronodRequest) returns (ZchronodResp) {}
+}
+
+message ZchronodRequest {
+  Event msg = 1;
+}
+
+message ZchronodResp {
+  Event resp = 1;
+}
+
+message Event {
+  bytes id = 1;
+  bytes pubkey = 2;
+  int64 created_at = 3;
+  uint32 kind = 4;
+  repeated TagArray tags = 5;
+  string content = 6;
+  bytes sig = 7;
+}
+
+message TagArray {
+  repeated string values = 1;
+}
+
+message VlcMsg {
+  string type =1;
+
+}
+
+/*
+{
+"id": <32-bytes lowercase hex-encoded sha256 of the serialized event data>,
+    "pubkey": <32-bytes lowercase hex-encoded public key of the event creator>,
+    "created_at": <unix timestamp in seconds>,
+    "kind": <integer between 0 and 65535>,
+    "tags": [
+    [<arbitrary string>...],
+// ...
+    ],
+"content": <arbitrary string>,
+    "sig": <64-bytes lowercase hex of the signature of the sha256 hash of the serialized event data, which is the same as the "id" field>
+    }
+
+ */
