@@ -32,7 +32,7 @@ pub struct ZchronodService {}
 #[tonic::async_trait]
 impl Zchronod for ZchronodService {
     async fn send(&self, request: Request<ZchronodRequest>) -> Result<Response<ZchronodResp>, Status> {
-        info!("recv request from {:?}",request.get_ref().msg.as_ref().unwrap().id);
+        info!("[{}] recv request from {:?}",module_path!(),request.get_ref().msg.as_ref().unwrap().id);
         if let Some(mut ctx) = unsafe { CONTEXT.take() } {
             ctx.get_network().send(request.get_ref().msg.clone().unwrap());
         }

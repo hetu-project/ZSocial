@@ -25,6 +25,7 @@ struct RpcConfig {
 struct GossipConfig {
     port: String,
 }
+
 fn parse_config_file(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(file_path)?;  // start with src/../..
     let config: Config = serde_yaml::from_str(&contents)?;
@@ -33,11 +34,11 @@ fn parse_config_file(file_path: &str) -> Result<Config, Box<dyn std::error::Erro
 
 pub unsafe fn init_chrono_node(config: &str) {
     let conf = parse_config_file(config).unwrap();
-    let network = Network::init(&conf.peers,&conf.rpc.port, &conf.gossip.port);
+    let network = Network::init(&conf.peers, &conf.rpc.port, &conf.gossip.port);
     //  let cons = Consensus::init();
 
     CONTEXT = Some(api::Node::new(Box::new(network)));
 
-    info!("zchronod service started")
+    info!("[{}] zchronod service started",module_path!())
     // network::set().expect("TODO: panic message");
 }
