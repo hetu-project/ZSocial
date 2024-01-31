@@ -11,7 +11,7 @@ modified: '2024-01-25T05:43:52.725Z'
 ### **Section 1 Chrono Description**
 
 Chrono protocol can provide high-performance storage for customized NIP which can make data consistency eventually during discoverable node cluster.
-
+ 
 <br>
 
 ### Section 2 Arch&&DataFlow
@@ -20,7 +20,7 @@ Chrono protocol can provide high-performance storage for customized NIP which ca
 
 <br>
 
-![](image/zchronod_arch.png)
+![](image/zchronod_archi.png)
 
 <br>
 
@@ -30,7 +30,7 @@ Chrono protocol can provide high-performance storage for customized NIP which ca
 
 <br>
 
-![](image/zchronod_data_flow.png)
+![](image/zchronod_flow_data.png)
 
 
 

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono-logger = { version = "0.1.0", path = "./logger" }
+zchronod-logger = { version = "0.1.0", path = "./logger" }
 process = {version = "0.1.0",path ="./process"}
 clap = "2.33.3"
 tokio = {  version = "1.35.1", features = ["full"] }
@@ -21,6 +21,7 @@ members = ["proto"]
 env_logger = "0.9.3"
 lazy_static = "1.4.0"
 log = "0.4.20"
+log4rs = "1.0"
 
 [[bin]]
 path = "src/main.rs"
