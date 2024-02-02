@@ -4,6 +4,13 @@ package zchronod;
 
 service zchronod {
   rpc send(ZchronodRequest) returns (ZchronodResp) {}
+  rpc query_poll_list(Empty) returns (PollListResponse) {}
+}
+
+message Empty {}
+
+message PollListResponse {
+  repeated bytes poll_list = 1;
 }
 
 message ZchronodRequest {
@@ -28,9 +35,14 @@ message TagArray {
   repeated string values = 1;
 }
 
-message VlcMsg {
+message VlcMsg {  // type = request, meta is event byt, type = sync , type = terminate
   string type =1;
+  bytes  meta=2;
+}
 
+message ZMessage {   // type = vlc
+  string type = 1;
+  bytes meta = 2;
 }
 
 /*

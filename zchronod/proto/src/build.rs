@@ -5,6 +5,6 @@ use std::io::Result;
 pub fn set() -> Result<()> {
     tonic_build::configure()
         .out_dir("proto/src")
-        .compile(&["proto/src/zchronod.proto"], &["proto/"])?;
+        .compile(&["src/msg.proto"], &["proto/"])?;
     Ok(())
 }

@@ -106,6 +106,7 @@ pub enum IncomingMessage {
     Event(Event),
     Close(String),
     Req(Subscription),
+    QueryPoll(),
     /// nip-42
     Auth(Event),
     /// nip-45
@@ -122,6 +123,7 @@ impl IncomingMessage {
             IncomingMessage::Auth(_) => "AUTH",
             IncomingMessage::Count(_) => "COUNT",
             IncomingMessage::Unknown(cmd, _) => cmd,
+            IncomingMessage::QueryPoll() => "QUERY",
         }
     }
 
@@ -133,6 +135,7 @@ impl IncomingMessage {
             IncomingMessage::Auth(_) => Some("AUTH"),
             IncomingMessage::Count(_) => Some("COUNT"),
             IncomingMessage::Unknown(_, _) => None,
+            IncomingMessage::QueryPoll() => Some("QUERY"),
         }
     }
 }

@@ -77,6 +77,8 @@ pub mod zchronod_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tracing::info;
+
     #[derive(Debug, Clone)]
     pub struct ZchronodClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -84,20 +86,21 @@ pub mod zchronod_client {
     impl ZchronodClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
+            where
+                D: TryInto<tonic::transport::Endpoint>,
+                D::Error: Into<StdError>,
         {
+            info!("sglk in connect");
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
             Ok(Self::new(conn))
         }
     }
     impl<T> ZchronodClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        where
+            T: tonic::client::GrpcService<tonic::body::BoxBody>,
+            T::Error: Into<StdError>,
+            T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+            <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -111,18 +114,18 @@ pub mod zchronod_client {
             inner: T,
             interceptor: F,
         ) -> ZchronodClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+            where
+                F: tonic::service::Interceptor,
+                T::ResponseBody: Default,
+                T: tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                <T as tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                >>::Error: Into<StdError> + Send + Sync,
         {
             ZchronodClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -161,6 +164,7 @@ pub mod zchronod_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ZchronodRequest>,
         ) -> std::result::Result<tonic::Response<super::ZchronodResp>, tonic::Status> {
+            info!("sglk in send");
             self.inner
                 .ready()
                 .await
@@ -249,8 +253,8 @@ pub mod zchronod_server {
             inner: T,
             interceptor: F,
         ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
+            where
+                F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
         }
@@ -284,10 +288,10 @@ pub mod zchronod_server {
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ZchronodServer<T>
-    where
-        T: Zchronod,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        where
+            T: Zchronod,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;

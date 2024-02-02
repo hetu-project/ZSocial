@@ -1,8 +1,19 @@
 use crate::{message::*, setting::SettingWrapper, Reader, Subscriber, Writer};
 use actix::prelude::*;
-use nostr_db::{CheckEventResult, Db};
-use std::{collections::HashMap, sync::Arc};
+use nostr_db::{CheckEventResult, Db, Event};
+use std::{collections::HashMap, env, sync::Arc, thread};
+use std::fmt::Error;
+use std::future::Future;
+use std::sync::mpsc;
+use tonic::Status;
+use tonic::transport::Channel;
 use tracing::info;
+use crate::zchronod::zchronod_client::ZchronodClient;
+use crate::zchronod::{Empty, TagArray, ZchronodRequest, ZchronodResp};
+use crate::zchronod::Event as c_Event;
+use std::time::{SystemTime, UNIX_EPOCH};
+use crate::message::IncomingMessage::QueryPoll;
+use tokio::runtime::Runtime;
 
 /// Server
 #[derive(Debug)]
@@ -12,6 +23,7 @@ pub struct Server {
     reader: Addr<Reader>,
     subscriber: Addr<Subscriber>,
     sessions: HashMap<usize, Recipient<OutgoingMessage>>,
+    zchronod_ip: String,
 }
 
 impl Server {
@@ -29,6 +41,7 @@ impl Server {
             let subscriber = Subscriber::new(ctx.address().recipient(), setting.clone()).start();
             let addr = ctx.address().recipient();
             info!("starting {} reader workers", num);
+            let zchronod_ip = setting.clone().read().zchronod.ip.clone();
             let reader = SyncArbiter::start(num, move || {
                 Reader::new(Arc::clone(&db), addr.clone(), setting.clone())
             });
@@ -39,6 +52,7 @@ impl Server {
                 reader,
                 subscriber,
                 sessions: HashMap::new(),
+                zchronod_ip: zchronod_ip,
             }
         })
     }
@@ -67,6 +81,7 @@ impl Actor for Server {
 impl Handler<Connect> for Server {
     type Result = usize;
     fn handle(&mut self, msg: Connect, _ctx: &mut Self::Context) -> Self::Result {
+        info!("receive here");
         if self.id == usize::MAX {
             self.id = 0;
         }
@@ -93,14 +108,171 @@ impl Handler<Disconnect> for Server {
     }
 }
 
+fn get_current_system_time() -> i64 {
+    let current_time = SystemTime::now();
+    let duration = current_time.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let timestamp = duration.as_secs() as i64;
+    timestamp
+}
+
+impl Server {
+    fn query_poll_list(&self) -> Vec<Vec<u8>> {
+        let mut rt = Runtime::new().unwrap();
+        //let zi = self.zchronod_ip.clone();
+        let zi = "127.0.0.1:10020".to_string();
+
+        let (sender, receiver) = mpsc::channel();
+
+       // let sender = Arc::new(sender);
+        rt.block_on(async move {
+            let grpc_server_addr = format!("http://{}", zi);
+
+            let mut client = ZchronodClient::connect(grpc_server_addr).await.unwrap();
+
+
+            let request = tonic::Request::new(Empty {});
+
+            match client.query_poll_list(request).await {
+                Ok(response) => {
+                    let pl = response.into_inner().poll_list;
+                    println!("Received response: {:?}", &pl);
+                    sender.send(pl).unwrap();
+                }
+                Err(_) => {
+                    println!("failed to send")
+                }
+            }
+        });
+        let received_vec = receiver.recv().unwrap();
+        drop(rt);
+        received_vec
+    }
+    async fn send_to_chronod_event(&self, e: Event) {
+        println!("send to chronod_event here");
+        let mut rt = Runtime::new().unwrap();
+        //let zi = self.zchronod_ip.clone();
+        let zi = "127.0.0.1:10020".to_string();
+
+            println!("in send to chronod future");
+            let e_c = e.clone();
+            let grpc_server_addr = format!("http://{}", zi);
+
+            let mut client = ZchronodClient::connect(grpc_server_addr).await.unwrap();
+
+            let t: Vec<TagArray> = e_c.tags().into_iter()
+                .map(|inner_vec| TagArray { values: inner_vec.clone() })
+                .collect();
+            let request = tonic::Request::new(ZchronodRequest {
+                msg: Some(c_Event{
+                    id: vec![1],
+                    pubkey: vec![6,7],
+                    created_at: 2,
+                    kind: 2,
+                    tags: vec![],
+                    content: "hello12333".to_string(),
+                    sig: vec![7, 8, 9,10],
+                })
+            });
+            info!("should send");
+            // let request = tonic::Request::new(ZchronodRequest {
+            //     msg: Some(c_Event {
+            //         id: Vec::from(e_c.id()),
+            //         pubkey: Vec::from(e_c.pubkey()),
+            //         created_at: get_current_system_time(),
+            //         kind: e_c.kind() as u32,
+            //         tags: t,
+            //         content: e_c.content().clone(),
+            //         sig: Vec::from(e_c.sig()),
+            //     })
+            // });
+            let response = client.send(request).await.unwrap().into_inner();
+            println!("Received response: {:?}", response);
+            // match client.send(request).await {
+            //     Ok(response) => {
+            //         println!("Received response: {:?}", response.into_inner());
+            //     }
+            //     Err(_) => {
+            //         println!("failed to send")
+            //     }
+            // }
+
+        //drop(rt);
+    }
+}
+
+async fn send_to_chronod_event(e: Event) {
+    println!("send to chronod_event here");
+    //let zi = self.zchronod_ip.clone();
+    let zi = "127.0.0.1:10020".to_string();
+
+    println!("in send to chronod future");
+    let e_c = e.clone();
+    let grpc_server_addr = format!("http://{}", zi);
+
+    let mut client = ZchronodClient::connect(grpc_server_addr).await.unwrap();
+
+    let t: Vec<TagArray> = e_c.tags().into_iter()
+        .map(|inner_vec| TagArray { values: inner_vec.clone() })
+        .collect();
+    let request = tonic::Request::new(ZchronodRequest {
+        msg: Some(c_Event{
+            id: vec![1],
+            pubkey: vec![6,7],
+            created_at: 2,
+            kind: 2,
+            tags: vec![],
+            content: "hello12333".to_string(),
+            sig: vec![7, 8, 9,10],
+        })
+    });
+    info!("should send");
+    // let request = tonic::Request::new(ZchronodRequest {
+    //     msg: Some(c_Event {
+    //         id: Vec::from(e_c.id()),
+    //         pubkey: Vec::from(e_c.pubkey()),
+    //         created_at: get_current_system_time(),
+    //         kind: e_c.kind() as u32,
+    //         tags: t,
+    //         content: e_c.content().clone(),
+    //         sig: Vec::from(e_c.sig()),
+    //     })
+    // });
+    let response = client.send(request).await.unwrap().into_inner();
+    println!("Received response: {:?}", response);
+    // match client.send(request).await {
+    //     Ok(response) => {
+    //         println!("Received response: {:?}", response.into_inner());
+    //     }
+    //     Err(_) => {
+    //         println!("failed to send")
+    //     }
+    // }
+}
 /// Handler for Message message.
 impl Handler<ClientMessage> for Server {
     type Result = ();
     fn handle(&mut self, msg: ClientMessage, ctx: &mut Self::Context) {
         match msg.msg {
+            IncomingMessage::QueryPoll() => {
+                info!("receive query poll here");
+                println!("receive query poll here");
+                let poll_list = self.query_poll_list();
+                let json_string = serde_json::to_string(&poll_list).unwrap();
+                self.send_to_client(msg.id, OutgoingMessage {
+                    0: json_string,
+                });
+            }
             IncomingMessage::Event(event) => {
+                println!("receive event here");
                 // save all event
                 // save ephemeral for check duplicate, disconnection recovery, will be deleted
+                let cp = event.clone();
+                thread::spawn(move || {
+                    let cpp = cp.clone();
+                    let mut rt = Runtime::new().unwrap();
+                    rt.block_on(async {  send_to_chronod_event(cpp).await; })
+                });
+                //self.send_to_chronod_event(event.clone());
                 self.writer.do_send(WriteEvent { id: msg.id, event })
             }
             IncomingMessage::Close(id) => self.subscriber.do_send(Unsubscribe {
@@ -217,6 +389,7 @@ mod tests {
 
     #[derive(Default)]
     struct Receiver(Arc<RwLock<Vec<OutgoingMessage>>>);
+
     impl Actor for Receiver {
         type Context = Context<Self>;
     }

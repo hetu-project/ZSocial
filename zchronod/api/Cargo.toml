@@ -11,3 +11,7 @@ authors.workspace = true
 
 [dependencies]
 proto ={version = "0.1.0",path = "../proto"}
+tokio = "1.35.1"
+lazy_static = { version = "1.4.0", features = [] }
+async-trait = { version = "0.1.77", features = [] }
+tonic = { version = "0.10.2", features = [] }
