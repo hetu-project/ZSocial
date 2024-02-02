@@ -14,7 +14,7 @@ To create a poll, include a `poll` tag in the message event. with the following 
 tag: poll
 options:
  - <multi|single> allow others to reply with one or multiple options
- - <clock> LC(in depth|VLC) when surv expires,0 LC the uplimit of VLC(2M)
+ - <clock> optional(not confirmed)LC(in depth|VLC) when surv expires,0 LC the uplimit of VLC(2M)
  - <title>event name
  - <info>optional Poll & Vote information ("" if not present)
  - [<option>]: array of string
