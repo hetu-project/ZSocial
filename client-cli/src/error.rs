@@ -23,6 +23,14 @@ pub enum Error {
     #[error("Creating User Failed")]
     CreatingUserFailed,
 
+    #[error("Publish Poll Failed")]
+    PublishPollFailed,
+
+    #[error("Make Vote Failed")]
+    MakeVoteFailed,
+
+
+
     #[error("Reading Credentials Failed")]
     ReadingCredentialsFailed,
 
@@ -115,11 +123,3 @@ impl Error {
         Err(Error::Custom(message))
     }
 }
-/// The enumerator for Errors
-
-// impl From<anyhow::Error> for Error {
-//     fn from(e: anyhow::Error) -> Self {
-//         error!("Error: {:?}", e); // full details incl. cause and backtrace
-//         Error::Custom(&e.to_string())
-//     }
-// }
