@@ -1,19 +1,7 @@
-// 1. formula存储3041事件状态
+// 1. formula 3041 event state
 // k : 3041_event-id_state
 // v:  event_state
 
-// // 创建一个空的 HashMap
-//let mut map = HashMap::new();
-//
-// // 插入键值对
-// map.insert("key1", "value1");
-// map.insert("key2", "value2");
-//
-// // 获取值
-// match map.get("key1") {
-// Some(value) => println!("The value of key1 is: {}", value),
-// None => println!("Key1 not found"),
-// }
 
 use std::collections::HashMap;
 use std::str::Utf8Error;
@@ -33,7 +21,8 @@ pub struct ZchronodDb {
 
 #[derive(Serialize, Deserialize)]
 pub struct OptionState {
-    map: HashMap<String, i32>,
+    // map: HashMap<String, i32>,
+    option_vec: Vec<(String, i32)>,
     // option_name : vote_num
     event: Event,
 }
@@ -86,13 +75,29 @@ impl ZchronodDb {
     //
     // }
     pub fn poll_write(&self, key: String, e: Event) -> Result<(), Error> {
+        println!("poll write key is {:?}", key.clone());
         let reader = self.inner.reader()?;
         if reader.get(&self.state, key.clone())?.is_none() {
             let mut writer = self.inner.writer()?;
             // convert option_state to json, and write as bytes
-            let o_s = OptionState {               //todo
-                map: Default::default(),    // to generate option
+            if e.tags.len() != 1 {
+                println!("tag len != 1, should be panic");
+                panic!()
+            }
+            let poll_tag = e.tags.get(0).unwrap().clone().values;
+            // option start with index 5
+            // let mut option_hmap: HashMap<String, i32> = HashMap::new();
+            let mut option_vec: Vec<(String, i32)> = vec![];
+            for i in 5..=poll_tag.len() - 1 {
+                //option_hmap.insert(poll_tag.get(i).unwrap().to_string(), 0);
+                option_vec.push((poll_tag.get(i).unwrap().to_string(), 0));
+                println!("insert index {} , which is {}", i, poll_tag.get(i).unwrap().to_string());
+            }
+            let o_s = OptionState {
+                // map: option_hmap,    // to generate option with 0
+                option_vec,
                 event: e.clone(),
+
             };
             let option_state = serde_json::to_string(&o_s).unwrap();
             writer.put(&self.state, key.clone(), option_state);
@@ -109,28 +114,66 @@ impl ZchronodDb {
         Ok(())
     }
 
-    pub fn vote_write(&self, key: &str, e: Event) -> Result<(), Error> { //todo
-        let reader = self.inner.reader()?;
-        if reader.get(&self.state, key.to_string())?.is_none() {
-            let mut writer = self.inner.writer()?;
-            // convert option_state to json, and write as bytes
-            let o_s = OptionState {
-                map: Default::default(),    // to generate option
-                event: e.clone(),
-            };
-            let option_state = serde_json::to_string(&o_s).unwrap();
-            writer.put(&self.state, key.to_string(), option_state);
-            match reader.get(&self.state, "poll_id".to_string())? {
-                Some(t) => {
-                    let mut poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
-                    poll_id_list.push(e.id.clone());
-                    writer.put(&self.state, "poll_id".to_string(), serde_json::to_string(&poll_id_list).unwrap());
-                }
-                None => { writer.put(&self.state, "poll_id".to_string(), e.id.clone()); }
+    pub fn vote_write(&self, e: Event) -> Result<(), Error> {
+        // construct key
+        let mut vote_tag = e.tags.clone();
+        let mut event_id = "".to_string();
+        let mut option_vote: Vec<String> = vec![];
+        let event_symbol = "e".to_string();
+
+        // should be once in item
+        for item in &mut vote_tag {
+            if item.values.get(0).unwrap().to_string() == event_symbol {
+                event_id = item.values.get(1).unwrap().to_string();
             }
-            writer.commit()?;
+            if item.values.get(0).unwrap().to_string() == "poll_r".to_string() {
+                for i in 1..=item.values.len() - 1 {
+                    option_vote.push(item.values.get(i).unwrap().to_string());
+                    println!("insert poll_r index {} , which is {}", i, item.values.get(i).unwrap().to_string());
+                }
+            }
         }
+
+        let key = format!("3041_{}_state", event_id);
+        println!("vote write key is {:?}", key.clone());
+        // read state, update, write
+        let reader = self.inner.reader()?;
+
+        let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
+        let mut op_read_state: OptionState = serde_json::from_str(state).unwrap();
+
+        // update
+        for vote in &option_vote {
+            let vote_index: usize = vote.parse().unwrap();
+            if let Some(mut tuple) = op_read_state.option_vec.get_mut(vote_index) {
+                tuple.1 += 1;
+                println!("{:?}", tuple);
+            }
+        }
+
+        // write
+        let mut writer = self.inner.writer()?;
+        let wirte_json_string = serde_json::to_string(&op_read_state).unwrap();
+        writer.put(&self.state, key.to_string(), wirte_json_string);
+        writer.commit()?;
+
         Ok(())
+    }
+
+    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<String>, Error> {
+        // construct key
+        let key = format!("3041_{}_state", event_id);
+        println!("vote write key is {:?}", key.clone());
+        let reader = self.inner.reader()?;
+
+        let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
+
+        let  op_state: OptionState = serde_json::from_str(state).unwrap();
+        let mut result:Vec<String> =vec![];
+        for element in op_state.option_vec{
+            result.push(element.0);
+        }
+        Ok(result)
     }
     pub fn query_all_event_id(&self) -> Result<(Vec<Vec<u8>>), Error> {
         let reader = self.inner.reader()?;
@@ -167,7 +210,7 @@ impl ZchronodDb {
                             }
                         }
                     }
-                    Err(_) => { return Err(Error::Message("failed to get state in db".to_string())); }// 如果结果是 Err，则返回错误消息
+                    Err(_) => { return Err(Error::Message("failed to get state in db".to_string())); }
                 }
                 //  op_state = std::str::from_utf8(state_bytes);
             }

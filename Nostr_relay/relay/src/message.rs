@@ -1,14 +1,11 @@
 use actix::{Message, MessageResponse, Recipient};
 use bytestring::ByteString;
-use nostr_db::{now, CheckEventResult, Event, Filter};
-use serde::{
-    de::{self, SeqAccess, Visitor},
-    Deserialize, Deserializer,
-};
+use nostr_db::{now, CheckEventResult, Event, Filter, EventIndex};
+use serde::{de::{self, SeqAccess, Visitor}, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use std::fmt::Display;
 use std::{fmt, marker::PhantomData};
-
+// use bitcoin::hashes::sha256::Hash;
 use crate::{setting::Limitation, Error};
 
 /// New session is created
@@ -106,7 +103,7 @@ pub enum IncomingMessage {
     Event(Event),
     Close(String),
     Req(Subscription),
-    QueryPoll(),
+    Query(String),
     /// nip-42
     Auth(Event),
     /// nip-45
@@ -123,7 +120,7 @@ impl IncomingMessage {
             IncomingMessage::Auth(_) => "AUTH",
             IncomingMessage::Count(_) => "COUNT",
             IncomingMessage::Unknown(cmd, _) => cmd,
-            IncomingMessage::QueryPoll() => "QUERY",
+            IncomingMessage::Query(_) => "QUERY",
         }
     }
 
@@ -135,7 +132,7 @@ impl IncomingMessage {
             IncomingMessage::Auth(_) => Some("AUTH"),
             IncomingMessage::Count(_) => Some("COUNT"),
             IncomingMessage::Unknown(_, _) => None,
-            IncomingMessage::QueryPoll() => Some("QUERY"),
+            IncomingMessage::Query(_) => Some("QUERY"),
         }
     }
 }

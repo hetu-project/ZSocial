@@ -7,7 +7,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::Sender;
 use api::{CONTEXT, RT};
 use proto::zchronod::zchronod_server::{Zchronod, ZchronodServer};
-use proto::zchronod::{Empty, Event, PollListResponse, ZchronodRequest, ZchronodResp};
+use proto::zchronod::{Empty, Event, PollEventState, PollListResponse, QueryPollEventRequest, ZchronodRequest, ZchronodResp};
 use chronod::Clock;
 use chronod::clock::ZMessage;
 use storage::ZchronodDb;
@@ -107,10 +107,19 @@ impl Zchronod for ZchronodService {
     }
 
     async fn query_poll_list(&self, request: Request<Empty>) -> Result<Response<PollListResponse>, Status> {
+
         let poll_list = self.db.read().unwrap().query_all_event_id().unwrap();
 
         Ok(Response::new(PollListResponse {
             poll_list: poll_list,
+        }))
+    }
+
+    async fn query_poll_event_state(&self, request: Request<QueryPollEventRequest>) -> Result<Response<PollEventState>, Status> {
+       println!("sglk: query_poll_event_stat here");
+        let state = self.db.read().unwrap().query_poll_event_state(request.into_inner().eventid).unwrap();
+        Ok(Response::new(PollEventState {
+            state: state,
         }))
     }
 }

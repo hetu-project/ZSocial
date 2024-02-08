@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package msg;
 
-// 每个nip独立clock
 message VlcMsg {// type = request, meta is event byt, type = sync , type = terminate
   string type = 1;
   bytes  vlcMeta = 2;
