@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read};
 use std::sync::mpsc::{channel, Sender};
+use async_std::io::Write;
 use tokio::runtime::Runtime;
 use tokio::task;
 use proto::zchronod::Event;
@@ -77,7 +78,7 @@ impl ZchronodServer {
         };
 
         println!("z-message construct ok, save to db, send to gossip");
-        if x.kind == 301 {}
+     //   if x.kind == 301 {}
 
         self.distribute_event_msg_to_db(x);
         let rt = Runtime::new();
@@ -86,16 +87,25 @@ impl ZchronodServer {
     }
 
     fn distribute_event_msg_to_db(&self, e: Event) {
+        println!("distribute rpc msg here");
         if e.kind == 301 {
             println!("receive kind 301 poll");
             info!("receive kind 301 poll");
             self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e);
+            return;
+        }
+
+        if e.kind == 309 {
+            println!("receive kind 309 poll");
+            info!("receive kind 309 poll");
+            self.z_db.write().unwrap().vote_write(e);
         }
     }
 
     fn construct_poll_event_key(&self, e: Event) -> String {
         // key is 3041_event-id_state
         let event_id: Vec<u8> = e.id.clone();
+        println!("{:?}",event_id);
         let event_id_str = String::from_utf8_lossy(&event_id);
         let result = format!("3041_{}_state", event_id_str);
         result

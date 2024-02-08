@@ -104,8 +104,11 @@ impl Session {
 
     fn handle_message(&mut self, text: String, ctx: &mut ws::WebsocketContext<Self>) {
         let msg = serde_json::from_str::<IncomingMessage>(&text);
+        let msg_c =serde_json::from_str::<IncomingMessage>(&text);
+        println!("sglk: handle_message here, {:?}", msg_c.unwrap().clone());
         match msg {
             Ok(msg) => {
+                println!("sglk: handle_incoming_message here");
                 if let Some(cmd) = msg.known_command() {
                     // only insert known command metrics
                     increment_counter!("nostr_relay_message_total", "command" => cmd);
