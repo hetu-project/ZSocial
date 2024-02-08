@@ -20,7 +20,8 @@ publish = true
 [dependencies]
 anyhow = "1.0"
 # 0.20
-nostr-sdk = { version = "0.24", features = ["blocking", "all-nips", "nip04", "nip06"] }
+#download from https://github.com/bai123-123/nostr.git
+nostr-sdk = { path = "../../nostr/crates/nostr-sdk"}
 tokio = { version = "1.33", features = ["full"] }
 clap = { version = "4.4", features = ["derive", "color", "wrap_help", "unicode"] }
 thiserror = "1.0"

@@ -26,6 +26,9 @@ mod log;
 mod output;
 mod args;
 mod relay;
+mod credential;
+mod util;
+
 
 use atty::Stream;
 // use bitcoin_hashes::sha256::Hash;
@@ -49,34 +52,15 @@ use tracing::{debug, enabled, error, info, trace, warn, Level};
 use tracing_subscriber;
 use update_informer::{registry, Check};
 
-use nostr_sdk::{
-    bitcoin::hashes::sha256::Hash,
-    nostr::event::kind::Kind,
-    nostr::event::tag::TagKind,
-    nostr::key::Keys,
-    nostr::key::XOnlyPublicKey,
-    nostr::message::relay::RelayMessage,
-    nostr::message::subscription::Filter,
-    nostr::prelude::core::time::Duration,
-    nostr::types::time::Timestamp,
-    // nostr::util::nips::nip04::Error as Nip04Error,
-    nostr::Metadata,
-    nostr::UncheckedUrl,
-    prelude::{FromBech32, FromSkStr, ToBech32}, //from_vech32 from_sk_str to_bech32
-    relay::RelayPoolNotification,
-    ChannelId,
-    Client,
-    Contact,
-    EventId,
-    RelayPoolNotification::{Event, Message, RelayStatus, Shutdown, Stop},
-    Url,
-};
+use nostr_sdk::{bitcoin::hashes::sha256::Hash, nostr::message::ClientMessage,nostr::event::kind::Kind, nostr::event::tag::TagKind, nostr::key::Keys, nostr::key::XOnlyPublicKey, nostr::message::relay::RelayMessage, nostr::message::subscription::Filter, nostr::prelude::core::time::Duration, nostr::types::time::Timestamp, nostr::Metadata, nostr::UncheckedUrl, prelude::{FromBech32, FromSkStr, ToBech32}, relay::RelayPoolNotification, Client, Contact, EventId, RelayPoolNotification::{Event, Message, RelayStatus, Shutdown, Stop}, Url, nostr::nips::nip3041, EventBuilder};
+use nostr_sdk::nips::nip3041::{PollData, VoteData};
 use error::Error;
 use version::Version;
 use log::LogLevel;
 use output::Output;
 use args::Args;
 use relay::Relay;
+use credential::Credentials;
 // /// import nostr-sdk Client related code of general kind: create_user, delete_user, etc // todo
 // mod client; // todo
 // use crate::client::dummy; // todo
@@ -111,114 +95,11 @@ const URL_README: &str = "https://raw.githubusercontent.com/8go/nostr-commander-
 /// A struct for the credentials. These will be serialized into JSON
 /// and written to the credentials.json file for permanent storage and
 /// future access.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Credentials {
-    secret_key_bech32: String, // nsec1...// private key
-    public_key_bech32: String, // npub1...
-    relays: Vec<Relay>,
-    metadata: Metadata,
-    contacts: Vec<Contact>,
-    subscribed_pubkeys: Vec<XOnlyPublicKey>,
-    subscribed_authors: Vec<XOnlyPublicKey>,
-    // todo: zzz subscribed_channels should be ChannelId's ?
-    subscribed_channels: Vec<Hash>,
-}
-
-impl AsRef<Credentials> for Credentials {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// implementation of Credentials struct
-impl Credentials {
-    /// Default constructor
-    fn new() -> Self {
-        Self {
-            secret_key_bech32: "".to_owned(),
-            public_key_bech32: "".to_owned(),
-            relays: Vec::new(),
-            metadata: Metadata::new(),
-            contacts: Vec::new(),
-            subscribed_pubkeys: Vec::new(),
-            subscribed_authors: Vec::new(),
-            subscribed_channels: Vec::new(),
-        }
-    }
-
-    // /// Default constructor
-    // fn create(
-    //     secret_key_bech32: String,
-    //     public_key_bech32: String,
-    //     relays: Vec<Url>,
-    //     metadata: Metadata,
-    // ) -> Self {
-    //     Self {
-    //         secret_key_bech32,
-    //         public_key_bech32,
-    //         relays,
-    //         metadata,
-    //     }
-    // }
-
-    /// Constructor for Credentials
-    fn load(path: &Path) -> Result<Credentials, Error> {
-        let reader = File::open(path)?;
-        Credentials::set_permissions(&reader)?;
-        let credentials: Credentials = serde_json::from_reader(reader)?;
-        let mut credentialsfiltered = credentials.clone();
-        credentialsfiltered.secret_key_bech32 = "***".to_string();
-        info!("loaded credentials are: {:?}", credentialsfiltered);
-        Ok(credentials)
-    }
-
-    /// Writing the credentials to a file
-    fn save(&self, path: &Path) -> Result<(), Error> {
-        fs::create_dir_all(path.parent().ok_or(Error::NoHomeDirectory)?)?;
-        let writer = File::create(path)?;
-        serde_json::to_writer_pretty(&writer, self)?;
-        Credentials::set_permissions(&writer)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn set_permissions(file: &File) -> Result<(), Error> {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = file.metadata()?.permissions();
-        // is the file world-readable? if so, reset the permissions to 600
-        if perms.mode() & 0o4 == 0o4 {
-            file.set_permissions(fs::Permissions::from_mode(0o600))
-                .unwrap();
-        }
-        Ok(())
-    }
-
-    #[cfg(not(unix))]
-    fn set_permissions(file: &File) -> Result<(), Error> {
-        Ok(())
-    }
-}
 
 /// Gets the *default* path (including file name) of the credentials file
 /// The default path might not be the actual path as it can be overwritten with command line
 /// options.
-fn get_credentials_default_path() -> PathBuf {
-    let dir = ProjectDirs::from_path(PathBuf::from(get_prog_without_ext())).unwrap();
-    // fs::create_dir_all(dir.data_dir());
-    let dp = dir.data_dir().join(CREDENTIALS_FILE_DEFAULT);
-    debug!(
-        "Data will be put into project directory {:?}.",
-        dir.data_dir()
-    );
-    info!("Credentials file with private key is {}.", dp.display());
-    dp
-}
+
 
 /// Gets the *actual* path (including file name) of the credentials file
 /// The default path might not be the actual path as it can be overwritten with command line
@@ -229,7 +110,7 @@ fn get_credentials_actual_path(ap: &Args) -> &PathBuf {
 
 /// Return true if credentials file exists, false otherwise
 fn credentials_exist(ap: &Args) -> bool {
-    let dp = get_credentials_default_path();
+    let dp = util::get_credentials_default_path();
     let ap = get_credentials_actual_path(ap);
     debug!(
         "credentials_default_path = {:?}, credentials_actual_path = {:?}",
@@ -244,116 +125,6 @@ fn credentials_exist(ap: &Args) -> bool {
     exists
 }
 
-/// Gets version number, static if available, otherwise default.
-fn get_version() -> &'static str {
-    VERSION_O.unwrap_or(VERSION)
-}
-
-/// Gets Rust package name, static if available, otherwise default.
-fn get_pkg_name() -> &'static str {
-    PKG_NAME_O.unwrap_or(PKG_NAME)
-}
-
-/// Gets Rust binary name, static if available, otherwise default.
-fn get_bin_name() -> &'static str {
-    BIN_NAME_O.unwrap_or(BIN_NAME)
-}
-
-/// Gets Rust package repository, static if available, otherwise default.
-fn get_pkg_repository() -> &'static str {
-    PKG_REPOSITORY_O.unwrap_or(PKG_REPOSITORY)
-}
-
-/// Gets program name without extension.
-fn get_prog_without_ext() -> &'static str {
-    get_bin_name() // with -rs suffix
-                   // get_pkg_name() // without -rs suffix
-}
-
-/// Prints the usage info
-pub fn usage() {
-    let help_str = Args::command().render_usage().to_string();
-    println!("{}", &help_str);
-    println!("Options:");
-    // let cmd = Args::command();
-    // // println!("{:?}", cmd);
-    // // for arg in cmd.get_arguments() {
-    // //         println!("{:?}",arg);
-    // // }
-    // // for arg in cmd.get_arguments() {
-    // //         println!("{}",arg); // bug in clap, panics
-    // // }
-    // for arg in cmd.get_arguments() {
-    //     let s = arg.get_help().unwrap().to_string();
-    //     let v: Vec<&str> = s.split("Details::").collect();
-    //     let val_names = arg.get_value_names().unwrap_or(&[]);
-    //     let mut pvalnames = false;
-    //     match arg.get_num_args() {
-    //         None => {}
-    //         Some(range) => {
-    //             println!("range {:?}", range);
-    //             if range != clap::builder::ValueRange::EMPTY {
-    //                 pvalnames = true;
-    //             }
-    //         }
-    //     }
-    //     if pvalnames {
-    //         println!(
-    //             "--{} [<{}>]:  {}",
-    //             arg.get_long().unwrap(),
-    //             val_names[0],
-    //             v[0]
-    //         );
-    //     } else {
-    //         println!("--{}: {}", arg.get_long().unwrap(), v[0]);
-    //     }
-    // }
-    let help_str = Args::command().render_help().to_string();
-    let v: Vec<&str> = help_str.split('\n').collect();
-    for l in v {
-        if l.starts_with("  -") || l.starts_with("      --") {
-            println!("{}", &l);
-        }
-    }
-}
-
-/// Prints the short help
-pub fn help() {
-    let help_str = Args::command().render_help().to_string();
-    // println!("{}", &help_str);
-    // regex to remove shortest pieces "Details:: ... \n  -"
-    // regex to remove shortest pieces "Details:: ... \n      --"
-    // regex to remove shortest pieces "Details:: ... \nPS:"
-    // 2 regex groups: delete and keep.
-    // [\S\s]*? ... match anything in a non-greedy fashion
-    // stop when either "PS:", "  -" or "      --" is reached
-    let re = Regex::new(r"(?P<del>[ ]+Details::[\S\s]*?)(?P<keep>\nPS:|\n  -|\n      --)").unwrap();
-    let after = re.replace_all(&help_str, "$keep");
-    print!("{}", &after.replace("\n\n", "\n")); // remove empty lines
-    println!("{}", "Use --manual to get more detailed help information.");
-}
-
-/// Prints the long help
-pub fn manual() {
-    let help_str = Args::command().render_long_help().to_string();
-    println!("{}", &help_str);
-}
-
-/// Prints the README.md file
-pub async fn readme() {
-    match reqwest::get(URL_README).await {
-        Ok(resp) => {
-            debug!("Got README.md file from URL {:?}.", URL_README);
-            println!("{}", resp.text().await.unwrap())
-        }
-        Err(ref e) => {
-            println!(
-                "Error getting README.md from {:#?}. Reported error {:?}.",
-                URL_README, e
-            );
-        }
-    };
-}
 
 /// Prints the version information
 pub fn version(ap: &Args) {
@@ -361,27 +132,17 @@ pub fn version(ap: &Args) {
         println!();
         println!(
             "  _|      _|      _|_|_|                     {}",
-            get_prog_without_ext()
+            util::get_prog_without_ext()
         );
         print!("  _|_|    _|    _|             _~^~^~_       ");
         println!("a Nostr CLI client written in Rust");
-        println!(
-            "  _|  _|  _|    _|         \\) /  o o  \\ (/   version {}",
-            get_version()
-        );
-        println!(
-            "  _|    _| |    _|           '_   -   _'     repo {}",
-            get_pkg_repository()
-        );
-        print!("  _|      _|      _|_|_|     / '-----' \\     ");
-        println!("please submit PRs to make this a better tool");
         println!();
     } else {
         print_json(
             &json!({
-                "program": get_prog_without_ext(),
-                "repo": get_pkg_repository(),
-                "version": get_version(),
+                "program": util::get_prog_without_ext(),
+                "repo": util::get_pkg_repository(),
+                "version": util::get_version(),
                 "icon": "NC :crab:",
             }),
             ap.output,
@@ -394,7 +155,7 @@ pub fn version(ap: &Args) {
 /// Prints the installed version and the latest crates.io-available version
 pub fn version_check(ap: &Args) {
     let key1 = "Installed version";
-    let value1 = get_version();
+    let value1 = util::get_version();
     let key2: &str;
     let value2: String;
     let key3: &str;
@@ -441,9 +202,9 @@ pub fn contribute(ap: &Args) {
         "{}{}{}{}{}{}",
         "This project is currently an experiment. ",
         "If you know Rust and are interested in Nostr, please have a look at the repo ",
-        get_pkg_repository(),
+        util::get_pkg_repository(),
         ". Please contribute code to improve the ",
-        get_prog_without_ext(),
+        util::get_prog_without_ext(),
         " Nostr CLI client. Safe!"
     );
     print_json(
@@ -856,6 +617,246 @@ pub(crate) fn cli_create_user(ap: &mut Args) -> Result<(), Error> {
     Ok(())
 }
 
+
+pub async fn cli_publish_poll(client: &Client, ap: &mut Args) -> Result<(), Error> {
+    
+    let mut multi_select = false;
+    
+    print!("Enter multi / single : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty. Default single");
+        }
+        "multi" => {
+            multi_select = true;
+        }
+        "single" => {
+            multi_select = false;
+        }
+        _ => {
+            error!(
+                "Error: must input multi / single"
+            );
+            return Err(Error::KeyFailure);
+        }
+    }
+
+    let mut title ="";
+
+    print!("Enter a title : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            title = input.trim();
+        }
+    }
+
+    let mut info = "";
+
+    print!("Enter info : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            info = input.trim();
+        }
+    }
+
+    let mut options = Vec::new();
+
+    print!("Enter options ex.(op1/op2/op3...) : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            options = input.trim().split("/").map(|op| op.to_string()).collect();
+        }
+    }
+
+    let my_keys = Keys::from_sk_str(&ap.creds.secret_key_bech32)?;
+    let poll = PollData::new(multi_select, "0", &title, &info, &options);
+    let poll_event: nostr_sdk::Event = EventBuilder::build_poll(poll.clone()).to_event(&my_keys).expect("REASON");
+    match  client.send_event(poll_event).await {
+        Ok(ref event_id) => print!(
+            "Event_id {:?}",
+            event_id
+        ),
+        Err(ref e) => {
+            error!("Publish fail {:?}", e);
+        }
+    }
+    Ok(())
+}
+
+
+pub async fn cli_make_vote(client: &Client, ap: &mut Args) -> Result<(), Error> {
+
+    let mut event_id ="";
+
+    print!("Enter event id : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            event_id = input.trim();
+        }
+    }
+
+    let mut choices = Vec::new();
+
+    print!("Enter choices ex.(0/1/2...) : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            error!(
+                "Error: must have choice"
+            );
+            return Err(Error::KeyFailure);
+        }
+        _ => {
+            choices = input.trim().split("/").map(|op| op.to_string()).collect();
+        }
+    }
+
+    let mut reason = "";
+
+    print!("Enter vote reason : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            reason = input.trim();
+        }
+    }
+
+    let my_keys = Keys::from_sk_str(&ap.creds.secret_key_bech32)?;
+    let event_id = EventId::from_hex(event_id).expect("REASON");
+    let vote = VoteData::new(event_id, &choices, &reason);
+    let vote_event: nostr_sdk::Event = EventBuilder::build_vote(vote.clone()).to_event(&my_keys).expect("REASON");
+    match  client.send_event(vote_event).await {
+        Ok(ref event_id) => print!(
+            "Event_id {:?}",
+            event_id
+        ),
+        Err(ref e) => {
+            error!("Vote fail {:?}", e);
+        }
+    }
+    Ok(())
+}
+
+pub async fn cli_query_poll(client: &Client) -> Result<(), Error> {
+
+    let mut event_id ="";
+
+    print!("Enter event id : ");
+    std::io::stdout()
+        .flush()
+        .expect("error: could not flush stdout");
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim() {
+        "" => {
+            info!("Left empty");
+        }
+        _ => {
+            event_id = input.trim();
+        }
+    }
+    let event_id = EventId::from_hex(event_id).expect("REASON");
+    let msg = ClientMessage::Query {specific_sid: event_id};
+    match  client.send_msg(msg).await {
+        Ok(ref event_id) => print!(
+            "Event_id {:?}",
+            event_id
+        ),
+        Err(ref e) => {
+            error!("Vote fail {:?}", e);
+        }
+    }
+    Ok(())
+}
+
+pub async fn cli_get_sids(client: &Client) -> Result<(), Error> {
+
+    let msg = ClientMessage::Query_SID ;
+    match  client.send_msg(msg).await {
+        Ok(ref event_id) => print!(
+            "Event_id {:?}",
+            event_id
+        ),
+        Err(ref e) => {
+            error!("Vote fail {:?}", e);
+        }
+    }
+    Ok(())
+}
+
+
 /// Add relays to from Credentials to client
 pub(crate) async fn add_relays_from_creds(client: &mut Client, ap: &mut Args) -> Result<(), Error> {
     let mut err_count = 0u32;
@@ -863,13 +864,14 @@ pub(crate) async fn add_relays_from_creds(client: &mut Client, ap: &mut Args) ->
     let mut i = 0;
     while i < num {
         let relay = ap.creds.relays[i].clone();
-        match client.add_relay(relay.url.as_str(), relay.proxy).await {
-            Ok(()) => {
+        match client.add_relay(relay.url.as_str()).await {
+            Ok(true) => {
                 debug!(
                     "add_relay with relay {:?} with proxy {:?} successful.",
                     relay.url, relay.proxy
                 );
             }
+            Ok(false) => {}
             Err(ref e) => {
                 error!(
                     "Error: add_relay() returned error. Relay {:?} with proxy {:?} not added. Reported error {:?}.",
@@ -895,8 +897,8 @@ pub(crate) async fn cli_add_relay(client: &mut Client, ap: &mut Args) -> Result<
     let mut i = 0;
     while i < num {
         if is_relay_url(&ap.add_relay[i]) {
-            match client.add_relay(ap.add_relay[i].as_str(), ap.proxy).await {
-                Ok(()) => {
+            match client.add_relay(ap.add_relay[i].as_str()).await {
+                Ok(true) => {
                     debug!(
                         "add_relay with relay {:?} and proxy {:?} successful.",
                         ap.add_relay[i], ap.proxy
@@ -905,6 +907,7 @@ pub(crate) async fn cli_add_relay(client: &mut Client, ap: &mut Args) -> Result<
                         .relays
                         .push(Relay::new(ap.add_relay[i].clone(), ap.proxy));
                 }
+                Ok(false) => {}
                 Err(ref e) => {
                     error!(
                     "Error: add_relay() returned error. Relay {:?} not added. Reported error {:?}.",
@@ -1014,19 +1017,19 @@ pub(crate) async fn cli_publish(client: &Client, ap: &mut Args) -> Result<(), Er
                                 "Read {n} bytes containing \"{}\\n\" from pipe stream.",
                                 trim_newline(&mut line.clone())
                             );
-                            match client.publish_text_note(&line, &[]).await {
-                                Ok(ref event_id) => debug!(
-                                    "Publish_text_note number {:?} from pipe stream sent successfully. {:?}. event_id {:?}",
-                                    i, &line, event_id
-                                ),
-                                Err(ref e) => {
-                                    err_count += 1;
-                                    error!(
-                                        "Publish_text_note number {:?} from pipe stream failed. {:?}",
-                                        i, &line
-                                    );
-                                }
-                            }
+                            // match client.publish_text_note(&line, &[]).await {
+                            //     Ok(ref event_id) => debug!(
+                            //         "Publish_text_note number {:?} from pipe stream sent successfully. {:?}. event_id {:?}",
+                            //         i, &line, event_id
+                            //     ),
+                            //     Err(ref e) => {
+                            //         err_count += 1;
+                            //         error!(
+                            //             "Publish_text_note number {:?} from pipe stream failed. {:?}",
+                            //             i, &line
+                            //         );
+                            //     }
+                            // }
                         }
                     }
                     Err(ref e) => {
@@ -1053,16 +1056,16 @@ pub(crate) async fn cli_publish(client: &Client, ap: &mut Args) -> Result<(), Er
             continue;
         }
 
-        match client.publish_text_note(&fnote, &[]).await {
-            Ok(ref event_id) => debug!(
-                "Publish_text_note number {:?} sent successfully. {:?}, event_id {:?}",
-                i, &fnote, event_id
-            ),
-            Err(ref e) => {
-                err_count += 1;
-                error!("Publish_text_note number {:?} failed. {:?}", i, &fnote);
-            }
-        }
+        // match client.publish_text_note(&fnote, &[]).await {
+        //     Ok(ref event_id) => debug!(
+        //         "Publish_text_note number {:?} sent successfully. {:?}, event_id {:?}",
+        //         i, &fnote, event_id
+        //     ),
+        //     Err(ref e) => {
+        //         err_count += 1;
+        //         error!("Publish_text_note number {:?} failed. {:?}", i, &fnote);
+        //     }
+        // }
         i += 1;
     }
     if err_count != 0 {
@@ -1071,118 +1074,6 @@ pub(crate) async fn cli_publish(client: &Client, ap: &mut Args) -> Result<(), Er
         Ok(())
     }
 }
-
-// publish_pow_text_note discontinued since nostr-sdk v0.21.
-// /// Handle the --publish_pow CLI argument
-// /// Publish a POW text note
-// pub(crate) async fn cli_publish_pow(client: &Client, ap: &mut Args) -> Result<(), Error> {
-//     let mut err_count = 0usize;
-//     let num = ap.publish_pow.len();
-//     let mut i = 0;
-//     while i < num {
-//         let note = &ap.publish_pow[i];
-//         trace!("publish: {:?}", note);
-//         if note.is_empty() {
-//             info!("Skipping empty text note.");
-//             i += 1;
-//             continue;
-//         };
-//         if note == "--" {
-//             info!("Skipping '--' text note as these are used to separate arguments.");
-//             i += 1;
-//             continue;
-//         };
-//         // - map to - (stdin pipe)
-//         // \- maps to text r'-', a 1-letter message
-//         let fnote = if note == r"-" {
-//             let mut line = String::new();
-//             if atty::is(Stream::Stdin) {
-//                 print!("Message: ");
-//                 std::io::stdout()
-//                     .flush()
-//                     .expect("error: could not flush stdout");
-//                 io::stdin().read_line(&mut line)?;
-//             } else {
-//                 io::stdin().read_to_string(&mut line)?;
-//             }
-//             line
-//         } else if note == r"_" {
-//             let mut eof = false;
-//             while !eof {
-//                 let mut line = String::new();
-//                 match io::stdin().read_line(&mut line) {
-//                     // If this function returns Ok(0), the stream has reached EOF.
-//                     Ok(n) => {
-//                         if n == 0 {
-//                             eof = true;
-//                             debug!("Reached EOF of pipe stream.");
-//                         } else {
-//                             debug!(
-//                                 "Read {n} bytes containing \"{}\\n\" from pipe stream.",
-//                                 trim_newline(&mut line.clone())
-//                             );
-//                             debug!("Be patient, hashing ...");
-//                             match client.publish_text_note(&line, &[], ap.pow_difficulty).await {
-//                                 Ok(event_id) => debug!(
-//                                     "Publish_pow_text_note number {:?} from pipe stream sent successfully. {:?}, event_id {:?}",
-//                                     i, &line, event_id
-//                                 ),
-//                                 Err(ref e) => {
-//                                     err_count += 1;
-//                                     error!(
-//                                         "Publish_pow_text_note number {:?} from pipe stream failed. {:?}",
-//                                         i, &line
-//                                     );
-//                                 }
-//                             }
-//                         }
-//                     }
-//                     Err(ref e) => {
-//                         err_count += 1;
-//                         error!("Error: reading from pipe stream reported {}", e);
-//                     }
-//                 }
-//             }
-//             "".to_owned()
-//         } else if note == r"\-" {
-//             "-".to_string()
-//         } else if note == r"\_" {
-//             "_".to_string()
-//         } else if note == r"\-\-" {
-//             "--".to_string()
-//         } else if note == r"\-\-\-" {
-//             "---".to_string()
-//         } else {
-//             note.to_string()
-//         };
-//         if fnote.is_empty() {
-//             info!("Skipping empty text note.");
-//             i += 1;
-//             continue;
-//         }
-//
-//         debug!("Be patient, hashing ...");
-//         match client
-//             .publish_pow_text_note(&fnote, &[], ap.pow_difficulty)
-//             .await
-//         {
-//             Ok(ref event_id) => debug!(
-//                 "Publish_pow_text_note number {:?} sent successfully. {:?}, event_id {:?}",
-//                 i, &fnote, event_id
-//             ),
-//             Err(ref e) => {
-//                 err_count += 1;
-//                 error!("Publish_pow_text_note number {:?} failed. {:?}", i, &fnote);
-//             }
-//         }
-//         i += 1;
-//     }
-//     if err_count != 0 {
-//         Err(Error::PublishPowFailed)
-//     } else {
-//         Ok(())
-//     }
-// }
 
 /// Publish DMs.
 pub(crate) async fn send_dms(
@@ -1330,153 +1221,11 @@ pub(crate) async fn cli_dm(client: &Client, ap: &mut Args) -> Result<(), Error> 
 }
 
 /// Send messages to one channel.
-pub(crate) async fn send_channel_messages(
-    client: &Client,
-    notes: &[String], // msgs
-    channel_id: &ChannelId,
-    relay_url: Url,
-) -> Result<(), Error> {
-    trace!("send_channel_messages {:?} {:?}.", notes, channel_id);
-    let mut err_count = 0usize;
-    let num = notes.len();
-    let mut i = 0;
-    while i < num {
-        let note = &notes[i];
-        trace!("send_channel_message: {:?}", note);
-        if note.is_empty() {
-            info!("Skipping empty text note.");
-            i += 1;
-            continue;
-        };
-        if note == "--" {
-            info!("Skipping '--' text note as these are used to separate arguments.");
-            i += 1;
-            continue;
-        };
-        // - map to - (stdin pipe)
-        // \- maps to text r'-', a 1-letter message
-        let fnote = if note == r"-" {
-            let mut line = String::new();
-            if atty::is(Stream::Stdin) {
-                print!("Message: ");
-                std::io::stdout()
-                    .flush()
-                    .expect("error: could not flush stdout");
-                io::stdin().read_line(&mut line)?;
-            } else {
-                io::stdin().read_to_string(&mut line)?;
-            }
-            line
-        } else if note == r"_" {
-            let mut eof = false;
-            while !eof {
-                let mut line = String::new();
-                match io::stdin().read_line(&mut line) {
-                    // If this function returns Ok(0), the stream has reached EOF.
-                    Ok(n) => {
-                        if n == 0 {
-                            eof = true;
-                            debug!("Reached EOF of pipe stream.");
-                        } else {
-                            debug!(
-                                "Read {n} bytes containing \"{}\\n\" from pipe stream.",
-                                trim_newline(&mut line.clone())
-                            );
-                            match client.send_channel_msg(channel_id.clone(), relay_url.clone(), &line).await {
-                                Ok(ref event_id) => debug!(
-                                    "send_channel_msg number {:?} from pipe stream sent successfully. {:?}, sent to {:?}, event_id is {:?}",
-                                    i, &line, channel_id, event_id
-                                ),
-                                Err(ref e) => {
-                                    err_count += 1;
-                                    error!(
-                                        "send_channel_msg number {:?} from pipe stream failed. {:?}, sent to {:?}, error is {:?}",
-                                        i, &line, &channel_id, e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Err(ref e) => {
-                        err_count += 1;
-                        error!("Error: reading from pipe stream reported {}", e);
-                    }
-                }
-            }
-            "".to_owned()
-        } else if note == r"\-" {
-            "-".to_string()
-        } else if note == r"\_" {
-            "_".to_string()
-        } else if note == r"\-\-" {
-            "--".to_string()
-        } else if note == r"\-\-\-" {
-            "---".to_string()
-        } else {
-            note.to_string()
-        };
-        if fnote.is_empty() {
-            info!("Skipping empty text note.");
-            i += 1;
-            continue;
-        }
 
-        match client
-            .send_channel_msg(channel_id.clone(), relay_url.clone(), &fnote)
-            .await
-        {
-            Ok(event_id) => debug!(
-                "send_channel_msg message number {:?} sent successfully. {:?}, sent to {:?}, event_id {:?}.",
-                i, &fnote, channel_id, event_id
-            ),
-            Err(ref e) => {
-                err_count += 1;
-                error!(
-                    "send_channel_msg message number {:?} failed. {:?}, sent to {:?}.",
-                    i, &fnote, channel_id
-                );
-            }
-        }
-        i += 1;
-    }
-    if err_count != 0 {
-        Err(Error::SendChannelFailed)
-    } else {
-        Ok(())
-    }
-}
 
 /// Handle the --send-channel-message CLI argument
 /// Publish messages to one channel.
-pub(crate) async fn cli_send_channel_message(client: &Client, ap: &mut Args) -> Result<(), Error> {
-    let num = ap.send_channel_message.len();
-    if num < 2 {
-        return Err(Error::MissingCliParameter);
-    }
-    // todo: check if hash is valid, doable? check documentation
-    match Hash::from_str(&ap.send_channel_message[0]) {
-        Ok(hash) => {
-            let notes = &ap.send_channel_message[1..];
-            let relay: Url;
-            if !ap.relay.is_empty() {
-                relay = ap.relay[0].clone();
-            } else {
-                relay = ap.creds.relays[0].clone().url;
-            }
-            // todo: using empty relay-vector, should it be set?
-            let channel_id: ChannelId = ChannelId::new(hash, Vec::new());
-            send_channel_messages(client, notes, &channel_id, relay).await
-        }
-        Err(ref e) => {
-            error!(
-                "Error: Not a valid hash (channel id). Cannot send this channel message. Aborting. Hash {:?}, 1st Msg {:?} ",
-                ap.send_channel_message[0],
-                ap.send_channel_message[1]
-            );
-            Err(Error::InvalidHash)
-        }
-    }
-}
+
 
 /// Is key in subscribed_authors list?
 pub(crate) fn is_subscribed_author(ap: &Args, pkey: &XOnlyPublicKey) -> bool {
@@ -1792,81 +1541,81 @@ pub(crate) fn cli_hex_to_npub(ap: &Args) -> Result<(), Error> {
 }
 
 /// Handle the --cli_get_pubkey_entity CLI argument
-pub(crate) async fn cli_get_pubkey_entity(client: &Client, ap: &mut Args) -> Result<(), Error> {
-    let mut err_count = 0usize;
-    let num = ap.get_pubkey_entity.len();
-    let mut i = 0;
-    while i < num {
-        match str_to_pubkey(&ap.get_pubkey_entity[i]) {
-            Ok(pkey) => {
-                debug!(
-                    "Valid key. Key {:?}, Hex: {:?}.",
-                    &ap.subscribe_pubkey[i],
-                    pkey.to_string()
-                );
-                // no timeout
-                match client.get_entity_of(pkey.to_string(), None).await {
-                    Ok(entity) => {
-                        debug!(
-                            "Valid key. Key {:?}, Hex: {:?}, Entity: {:?}",
-                            &ap.subscribe_pubkey[i],
-                            pkey.to_string(),
-                            entity
-                        );
-                        print_json(
-                            &json!({
-                                "hex": pkey.to_string(),
-                                "entity": entity, // prints as text like "Channel"
-                            }),
-                            ap.output,
-                            0,
-                            "",
-                        );
-                    }
-                    Err(ref e) => {
-                        debug!(
-                            "Valid key. Key {:?}, Hex: {:?}, Entity error: {:?}",
-                            &ap.subscribe_pubkey[i],
-                            pkey.to_string(),
-                            e
-                        );
-                        print_json(
-                            &json!({
-                                "hex": pkey.to_string(),
-                                "error": format!("{:?}",e),
-                            }),
-                            ap.output,
-                            0,
-                            "",
-                        );
-                    }
-                }
-            }
-            Err(ref e) => {
-                error!(
-                    "Error: Invalid key {:?}. No attempt made to determine entity.",
-                    &ap.get_pubkey_entity[i]
-                );
-                print_json(
-                    &json!({
-                        "key": ap.get_pubkey_entity[i],
-                        "error": "invalid key",
-                    }),
-                    ap.output,
-                    0,
-                    "",
-                );
-                err_count += 1;
-            }
-        }
-        i += 1;
-    }
-    if err_count != 0 {
-        Err(Error::GetEntityFailed)
-    } else {
-        Ok(())
-    }
-}
+// pub(crate) async fn cli_get_pubkey_entity(client: &Client, ap: &mut Args) -> Result<(), Error> {
+//     let mut err_count = 0usize;
+//     let num = ap.get_pubkey_entity.len();
+//     let mut i = 0;
+//     while i < num {
+//         match str_to_pubkey(&ap.get_pubkey_entity[i]) {
+//             Ok(pkey) => {
+//                 debug!(
+//                     "Valid key. Key {:?}, Hex: {:?}.",
+//                     &ap.subscribe_pubkey[i],
+//                     pkey.to_string()
+//                 );
+//                 // no timeout
+//                 match client.get_entity_of(pkey.to_string(), None).await {
+//                     Ok(entity) => {
+//                         debug!(
+//                             "Valid key. Key {:?}, Hex: {:?}, Entity: {:?}",
+//                             &ap.subscribe_pubkey[i],
+//                             pkey.to_string(),
+//                             entity
+//                         );
+//                         print_json(
+//                             &json!({
+//                                 "hex": pkey.to_string(),
+//                                 "entity": entity, // prints as text like "Channel"
+//                             }),
+//                             ap.output,
+//                             0,
+//                             "",
+//                         );
+//                     }
+//                     Err(ref e) => {
+//                         debug!(
+//                             "Valid key. Key {:?}, Hex: {:?}, Entity error: {:?}",
+//                             &ap.subscribe_pubkey[i],
+//                             pkey.to_string(),
+//                             e
+//                         );
+//                         print_json(
+//                             &json!({
+//                                 "hex": pkey.to_string(),
+//                                 "error": format!("{:?}",e),
+//                             }),
+//                             ap.output,
+//                             0,
+//                             "",
+//                         );
+//                     }
+//                 }
+//             }
+//             Err(ref e) => {
+//                 error!(
+//                     "Error: Invalid key {:?}. No attempt made to determine entity.",
+//                     &ap.get_pubkey_entity[i]
+//                 );
+//                 print_json(
+//                     &json!({
+//                         "key": ap.get_pubkey_entity[i],
+//                         "error": "invalid key",
+//                     }),
+//                     ap.output,
+//                     0,
+//                     "",
+//                 );
+//                 err_count += 1;
+//             }
+//         }
+//         i += 1;
+//     }
+//     if err_count != 0 {
+//         Err(Error::GetEntityFailed)
+//     } else {
+//         Ok(())
+//     }
+// }
 
 /// Handle the --subscribe-pubkey CLI argument, moving pkeys from CLI args into creds data structure
 pub(crate) async fn cli_subscribe_pubkey(client: &mut Client, ap: &mut Args) -> Result<(), Error> {
@@ -2099,7 +1848,7 @@ pub(crate) fn print_json(jsonv: &Value, output: Output, depth: u32, separator: &
                 print!(" ]");
             } else {
                 debug!("not implemented type in print_json()");
-                print!("{}", jsonv.to_string(),);
+                print!("{}", jsonv.to_string(), );
             }
             if depth == 0 {
                 println!();
@@ -2108,7 +1857,7 @@ pub(crate) fn print_json(jsonv: &Value, output: Output, depth: u32, separator: &
         Output::JsonSpec => (),
         _ => {
             // This can panic if output is piped and pipe is broken by receiving process
-            println!("{}", jsonv.to_string(),);
+            println!("{}", jsonv.to_string(), );
         }
     }
 }
@@ -2133,15 +1882,27 @@ async fn main() -> Result<(), Error> {
     let mut ap = Args::parse();
     let mut is_connected = false; // is this app connected to relays
 
-    eprintln!("Please delete user and create new user or edit your");
-    eprintln!("credentials file and make it look similar to the example");
-    eprintln!("given in the README.md file.");
-    eprintln!("");
+    // eprintln!("Please delete user and create new user or edit your");
+    // eprintln!("credentials file and make it look similar to the example");
+    // eprintln!("given in the README.md file.");
+    // eprintln!("");
 
     // handle log level and debug options
     let env_org_rust_log = env::var("RUST_LOG").unwrap_or_default().to_uppercase();
     // eprintln!("Original log_level option is {:?}", ap.log_level);
     // eprintln!("Original RUST_LOG is {:?}", &env_org_rust_log);
+
+
+    if ap.show_cred_path {
+        let dp = util::get_credentials_default_path();
+        let ap = get_credentials_actual_path(&ap);
+        println!("credentials_default_path = {:?}, credentials_actual_path = {:?}", dp, ap);
+        return Ok(());
+    }
+
+
+
+
     if ap.debug > 0 {
         // -d overwrites --log-level
         ap.log_level = LogLevel::Debug
@@ -2169,9 +1930,9 @@ async fn main() -> Result<(), Error> {
     } else if enabled!(Level::DEBUG) {
         debug!("Log level is set to DEBUG.");
     }
-    debug!("Version is {}", get_version());
-    debug!("Package name is {}", get_pkg_name());
-    debug!("Repo is {}", get_pkg_repository());
+    debug!("Version is {}", util::get_version());
+    debug!("Package name is {}", util::get_pkg_name());
+    debug!("Repo is {}", util::get_pkg_repository());
     debug!("Arguments are {:?}", ap);
 
     match ap.version {
@@ -2183,19 +1944,19 @@ async fn main() -> Result<(), Error> {
         crate::contribute(&ap);
     };
     if ap.usage {
-        crate::usage();
+        util::usage();
         return Ok(());
     };
     if ap.help {
-        crate::help();
+        util::help();
         return Ok(());
     };
     if ap.manual {
-        crate::manual();
+        util::manual();
         return Ok(());
     };
     if ap.readme {
-        crate::readme().await;
+        util::readme().await;
         return Ok(());
     };
 
@@ -2228,22 +1989,22 @@ async fn main() -> Result<(), Error> {
 
     // Show public key
     if ap.show_public_key {
-        debug!(
+        print!(
             "Loaded public key in Nostr format is : {:?}",
             my_keys.public_key().to_string()
         );
-        debug!(
+        println!(
             "Loaded public key in Bech32 format is: {:?}",
             ap.creds.public_key_bech32
         );
     }
     // Show secret key
     if ap.show_secret_key {
-        debug!(
+        println!(
             "Loaded secret key in Nostr format is : {:?}",
             my_keys.secret_key()?.display_secret()
         );
-        debug!(
+        println!(
             "Loaded secret key in Bech32 format is: {:?}",
             ap.creds.secret_key_bech32
         );
@@ -2399,17 +2160,17 @@ async fn main() -> Result<(), Error> {
     }
     // ap.creds.save(get_credentials_actual_path(&ap))?; // do it later
 
-    // Get pubkey entity
-    if !ap.get_pubkey_entity.is_empty() {
-        match crate::cli_get_pubkey_entity(&client, &mut ap).await {
-            Ok(()) => {
-                info!("get_pubkey_entity successful.");
-            }
-            Err(ref e) => {
-                error!("get_pubkey_entity failed. Reported error is: {:?}", e);
-            }
-        }
-    }
+    // // Get pubkey entity
+    // if !ap.get_pubkey_entity.is_empty() {
+    //     match crate::cli_get_pubkey_entity(&client, &mut ap).await {
+    //         Ok(()) => {
+    //             info!("get_pubkey_entity successful.");
+    //         }
+    //         Err(ref e) => {
+    //             error!("get_pubkey_entity failed. Reported error is: {:?}", e);
+    //         }
+    //     }
+    // }
 
     trace!("checking if something needs to be published.");
     // Publish a text note
@@ -2447,16 +2208,7 @@ async fn main() -> Result<(), Error> {
         }
     }
     // Send channel messages
-    if !ap.send_channel_message.is_empty() {
-        match crate::cli_send_channel_message(&client, &mut ap).await {
-            Ok(()) => {
-                info!("send-channel-message successful.");
-            }
-            Err(ref e) => {
-                error!("send-channel-message failed. Reported error is: {:?}", e);
-            }
-        }
-    }
+
 
     // Subscribe keys
     if !ap.subscribe_pubkey.is_empty() {
@@ -2508,7 +2260,7 @@ async fn main() -> Result<(), Error> {
         asf = Filter::new();
         for author in &ap.creds.subscribed_authors {
             debug!("adding author {:?} to filter.", author);
-            asf = asf.author(author.to_string());
+            asf = asf.author(*author);
         }
         if ap.limit_number != 0 {
             asf = asf.limit(ap.limit_number);
@@ -2619,16 +2371,21 @@ async fn main() -> Result<(), Error> {
                         debug!("Shutdown: shutting down");
                         // todo: zzz shutdown
                     }
-                    RelayStatus { url, status } => {
+                    RelayStatus { relay_url: url, status: status } => {
                         debug!("Event-RelayStatus: url {:?}, relaystatus {:?}", url, status);
                     }
-                    Event(url, ev) => {
+                    Event { relay_url: url, event: ev } => {
                         debug!("Event-Event: url {:?}, content {:?}, kind {:?}", url, ev.content, ev.kind);
                     }
-                    Message(url, msg) => {
+                    Message { relay_url: url, message: msg } => {
                         // debug!("Message: {:?}", msg);
                         match msg {
-                            RelayMessage::Ok {event_id, status, message } => {
+                            RelayMessage::Closed{..} => {}
+
+                            RelayMessage::NegMsg{..} => {}
+                            RelayMessage::NegErr{..} => {}
+
+                            RelayMessage::Ok { event_id, status, message } => {
                                 // Notification: ReceivedMessage(Ok { event_id: 123, status: true, message: "" })
                                 // confirmation of notice having been relayed
                                 info!("Message-OK: Notice, DM or message was relayed. Url is {:?}, Event id is {:?}. Status is {:?} and message is {:?}. You can investigate this event by looking it up on https://nostr.com/e/{}", url, event_id, status, message, event_id.to_string());
@@ -2640,14 +2397,14 @@ async fn main() -> Result<(), Error> {
                                         "message": message,
                                         "event_url": "https://nostr.com/e/".to_string() + &event_id.to_string(),
                                         "event_url_meaning": "You can investigate this event by looking up the event URL.",
-                                    }) ,
-                                    ap.output,0,""
+                                    }),
+                                    ap.output, 0, "",
                                 );
-                            },
+                            }
                             RelayMessage::Notice { message } => {
                                 debug!("Message-Notice: {:?}", message);
                             }
-                            RelayMessage::Event {event, subscription_id}=> {
+                            RelayMessage::Event { event, subscription_id } => {
                                 // kind: Base(ChannelMessage) and Base(TextNote) and Base(Reaction)
                                 let mut tags = "".to_owned();
                                 let first = true;
@@ -2669,7 +2426,7 @@ async fn main() -> Result<(), Error> {
                                             //    }
                                             //    None => ()
                                             //}
-                                        },
+                                        }
                                         TagKind::E => info!("E message received. Not implemented."),  // todo!(),
                                         TagKind::Nonce => info!("Nonce message received. Not implemented."),  // todo!(),
                                         TagKind::Delegation => info!("Delegation message received. Not implemented."),  // todo!(),
@@ -2681,16 +2438,16 @@ async fn main() -> Result<(), Error> {
                                 trace!("Message-Event: content {:?}, kind {:?}, from pubkey {:?}, with tags {:?}", event.content, event.kind, get_contact_alias_or_keystr_by_key(&ap, event.pubkey), event.tags);
                                 let mut key_author = "key";
                                 if is_subscribed_author(&ap, &event.pubkey) {
-                                            key_author = "author";
-                                            tags = get_contact_alias_or_keystr_by_key(&ap, event.pubkey);
-                                        };
+                                    key_author = "author";
+                                    tags = get_contact_alias_or_keystr_by_key(&ap, event.pubkey);
+                                };
                                 match event.kind {
                                     Kind::ContactList => {
                                         debug!("Received Message-Event ContactList");
-                                    },
+                                    }
                                     Kind::Reaction => {
                                         debug!("Received Message-Event Reaction: content {:?}", event.content);
-                                    },
+                                    }
                                     Kind::TextNote => {
                                         info!("Subscription by {} ({}): content {:?}, kind {:?}, from pubkey {:?}", key_author, tags, event.content, event.kind, get_contact_alias_or_keystr_by_key(&ap, event.pubkey));
                                         print_json(
@@ -2705,10 +2462,10 @@ async fn main() -> Result<(), Error> {
                                                 "from_alias": get_contact_alias_or_keystr_by_key(&ap, event.pubkey),
                                                 "from_pubkey": event.pubkey,
                                                 "tags": tags
-                                            }) ,
-                                            ap.output,0,""
+                                            }),
+                                            ap.output, 0, "",
                                         );
-                                    },
+                                    }
                                     Kind::ChannelMessage => {
                                         info!("Subscription by {} ({}): content {:?}, kind {:?}, from pubkey {:?}", key_author, tags, event.content, event.kind, get_contact_alias_or_keystr_by_key(&ap, event.pubkey));
                                         print_json(
@@ -2723,22 +2480,22 @@ async fn main() -> Result<(), Error> {
                                                 "from_alias": get_contact_alias_or_keystr_by_key(&ap, event.pubkey),
                                                 "from_pubkey": event.pubkey,
                                                 "tags": tags
-                                            }) ,
-                                            ap.output,0,""
+                                            }),
+                                            ap.output, 0, "",
                                         );
-                                    },
+                                    }
                                     _ => ()
                                 }
-                            },
-                            RelayMessage::EndOfStoredEvents(subscription_id) =>  {
-                                        debug!("Received Message-Event EndOfStoredEvents");
-                                    },
-                            RelayMessage::Auth { challenge } =>  {
-                                        debug!("Received Message-Event Auth");
-                                    },
-                            RelayMessage::Count { subscription_id, count } =>  {
-                                        debug!("Received Message-Event Count {:?}", count);
-                                    },
+                            }
+                            RelayMessage::EndOfStoredEvents(subscription_id) => {
+                                debug!("Received Message-Event EndOfStoredEvents");
+                            }
+                            RelayMessage::Auth { challenge } => {
+                                debug!("Received Message-Event Auth");
+                            }
+                            RelayMessage::Count { subscription_id, count } => {
+                                debug!("Received Message-Event Count {:?}", count);
+                            }
                         }
                     }
                 }
@@ -2755,6 +2512,59 @@ async fn main() -> Result<(), Error> {
         }
     }
 
+    if ap.publish_poll {
+        match cli_publish_poll(&client, &mut ap).await {
+            Ok(()) => {
+                info!("Publish poll successfully.");
+            }
+            Err(ref e) => {
+                error!("Publish poll fail. Reported error is: {:?}", e);
+                return Err(Error::PublishPollFailed);
+            }
+        }
+        return Ok(());
+    }
+
+    if ap.vote {
+        match cli_make_vote(&client, &mut ap).await {
+            Ok(()) => {
+                info!("Make vote successfully.");
+            }
+            Err(ref e) => {
+                error!("Make vote fail. Reported error is: {:?}", e);
+                return Err(Error::MakeVoteFailed);
+            }
+        }
+        return Ok(());
+    }
+
+    if ap.query_poll_state {
+        match cli_query_poll(&client).await {
+            Ok(()) => {
+                info!("Make vote successfully.");
+            }
+            Err(ref e) => {
+                error!("Make vote fail. Reported error is: {:?}", e);
+                return Err(Error::MakeVoteFailed);
+            }
+        }
+        return Ok(());
+    }
+
+    if ap.get_eids_poll {
+        match cli_get_sids(&client).await {
+            Ok(()) => {
+                info!("Make vote successfully.");
+            }
+            Err(ref e) => {
+                error!("Make vote fail. Reported error is: {:?}", e);
+                return Err(Error::MakeVoteFailed);
+            }
+        }
+        return Ok(());
+    }
+
+
     debug!("Good bye");
     Ok(())
 }
@@ -2767,11 +2577,11 @@ mod tests {
 
     #[test]
     fn test_usage() {
-        assert_eq!(usage(), ());
+        assert_eq!(util::usage(), ());
     }
 
     #[test]
     fn test_help() {
-        assert_eq!(help(), ());
+        assert_eq!(util::help(), ());
     }
 }

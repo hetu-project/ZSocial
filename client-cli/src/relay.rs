@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 /// future access.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Relay {
-    url: Url,
-    proxy: Option<SocketAddr>,
+    pub(crate) url: Url,
+    pub(crate) proxy: Option<SocketAddr>,
 }
 
 impl AsRef<Relay> for Relay {
@@ -26,7 +26,7 @@ impl Default for Relay {
 /// implementation of Relay struct
 impl Relay {
     /// Default constructor
-    fn new(url: Url, proxy: Option<SocketAddr>) -> Self {
+    pub(crate) fn new(url: Url, proxy: Option<SocketAddr>) -> Self {
         Self { url, proxy }
     }
 }

@@ -2,11 +2,11 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use clap::Parser;
 use nostr_sdk::Url;
-use crate::{Credentials, get_credentials_default_path, POW_DIFFICULTY_DEFAULT};
+use crate::{Credentials, POW_DIFFICULTY_DEFAULT};
 use crate::log::LogLevel;
 use crate::output::Output;
 use crate::version::Version;
-
+use crate::util;
 // A public struct with private fields to keep the command line arguments from
 // library `clap`.
 /// Welcome to "nostr-commander-rs", a Nostr CLI client. ───
@@ -16,10 +16,11 @@ use crate::version::Version;
 /// Have a look at the repo "https://github.com/8go/nostr-commander-rs/"
 /// and see if you can contribute code to improve this tool.
 /// Safe!
+use clap::{ColorChoice, CommandFactory, ValueEnum};
 #[derive(Clone, Debug, Parser)]
 #[command(author, version,
 next_line_help = true,
-bin_name = get_prog_without_ext(),
+bin_name = util::get_prog_without_ext(),
 color = ColorChoice::Always,
 term_width = 79,
 after_help = "PS: Also have a look at scripts/nostr-commander-tui.",
@@ -129,7 +130,7 @@ pub struct Args {
     #[arg(short, long,
     value_name = "PATH_TO_FILE",
     value_parser = clap::value_parser!(PathBuf),
-    default_value_os_t = get_credentials_default_path(),
+    default_value_os_t = util::get_credentials_default_path(),
     )]
     pub(crate) credentials: PathBuf,
 
@@ -552,6 +553,23 @@ pub struct Args {
     /// By default there is no limit (0), i.e. you will receive events forever.
     #[arg(long, alias = "until-hours", value_name = "HOURS", default_value_t = 0)]
    pub limit_future_hours: u64,
+
+
+    ///show the credential file path
+    #[arg(long, default_value_t = false)]
+    pub show_cred_path:bool,
+
+    #[arg(long, default_value_t = false)]
+    pub publish_poll: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub vote: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub query_poll_state: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub get_eids_poll: bool,
 }
 
 impl Default for Args {
@@ -575,7 +593,7 @@ impl Args {
             verbose: 0u8,
             // plain: false,
             // credentials file path
-            credentials: get_credentials_default_path(),
+            credentials: util::get_credentials_default_path(),
             create_user: false,
             delete_user: false,
             name: None,
@@ -619,6 +637,11 @@ impl Args {
             limit_hours: 0,
             limit_future_days: 0,
             limit_future_hours: 0,
+            show_cred_path:false,
+            publish_poll:false,
+            vote:false,
+            query_poll_state:false,
+            get_eids_poll:false
         }
     }
 }
