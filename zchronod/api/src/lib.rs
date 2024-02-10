@@ -1,7 +1,18 @@
+use std::println;
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Sender, SyncSender};
+use async_trait::async_trait;
+use lazy_static::lazy::Lazy;
+use lazy_static::lazy_static;
+use tokio::runtime::Runtime;
 use proto::zchronod::Event;
+
 
 pub static mut CONTEXT: Option<Node> = None;
 
+lazy_static! {
+    pub static ref RT: Runtime = Runtime::new().unwrap();
+}
 pub struct Node {
     network: Box<dyn NetworkInterface>,
     //consensus: Box<dyn ConsensusInterface>,
@@ -23,14 +34,44 @@ impl Node {
     pub fn get_network(&self) -> &Box<dyn NetworkInterface> {
         &self.network
     }
-    pub fn run(&mut self) {
-        self.network.run();
+    pub async fn run(&mut self) {
+        self.network.run().await;
     }
+
+    // pub  fn send(&mut self) {
+    //     self.network.send();
+    // }
 }
 
-pub trait NetworkInterface {
+
+pub struct NodeForTest {
+    network: Box<dyn NetworkInterfaceForTest>,
+    //consensus: Box<dyn ConsensusInterface>,
+}
+
+struct EmptyNetwork {}
+
+pub trait NetworkInterfaceForTest {
     fn run(&mut self);
     fn send(&self, msg: Event);
 }
 
-pub trait ConsensusInterface {}
+impl NetworkInterfaceForTest for EmptyNetwork {
+    fn run(&mut self) {
+        todo!()
+    }
+
+    fn send(&self, msg: Event) {
+        todo!()
+    }
+}
+
+
+#[async_trait]
+pub trait NetworkInterface {
+    async fn run(&mut self);
+    fn send(&self, msg: Event);
+}
+
+
+

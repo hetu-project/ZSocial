@@ -12,7 +12,7 @@ software = "https://github.com/rnostr/rnostr"
 # config data path
 [data]
 # the data path (restart required)
-# the events db path is $path/events
+# the events Db path is $path/events
 path = "./data"
 
 # Query filter timeout time, default no timeout.
