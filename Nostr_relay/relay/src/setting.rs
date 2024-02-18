@@ -181,6 +181,15 @@ pub struct Setting {
     /// nip-11 extension limitation
     #[serde(skip)]
     ext_limitation: HashMap<String, Value>,
+
+    pub zchronod: Zchronod,
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Zchronod {
+    pub ip: String,
 }
 
 impl PartialEq for Setting {
@@ -253,10 +262,10 @@ impl SettingWrapper {
             move |result: Result<Event, notify::Error>| match result {
                 Ok(event) => {
                     #[cfg(target_os = "windows")]
-                    // There is no distinction between data writes or metadata writes. Both of these are represented by Modify(Any).
-                    let is_modify = matches!(event.kind, EventKind::Modify(ModifyKind::Any));
+                        // There is no distinction between data writes or metadata writes. Both of these are represented by Modify(Any).
+                        let is_modify = matches!(event.kind, EventKind::Modify(ModifyKind::Any));
                     #[cfg(not(target_os = "windows"))]
-                    let is_modify = matches!(event.kind, EventKind::Modify(ModifyKind::Data(_)));
+                        let is_modify = matches!(event.kind, EventKind::Modify(ModifyKind::Data(_)));
                     if is_modify && event.paths.contains(&c_file) {
                         match c_setting.reload(&c_file, env_prefix.clone()) {
                             Ok(_) => {

@@ -34,6 +34,7 @@ mod session;
 pub mod setting;
 mod subscriber;
 mod writer;
+pub mod zchronod;
 
 pub use metrics;
 pub use nostr_db as db;

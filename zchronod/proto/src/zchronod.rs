@@ -1,5 +1,28 @@
 use prost::Message;
+use serde::{Deserialize, Serialize};
 
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryPollEventRequest {
+    #[prost(string, tag = "1")]
+    pub eventid: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PollEventState {
+    /// option - string - option - string
+    #[prost(string, repeated, tag = "1")]
+    pub state: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Empty {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PollListResponse {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub poll_list: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ZchronodRequest {
@@ -13,7 +36,7 @@ pub struct ZchronodResp {
     pub resp: ::core::option::Option<Event>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, Deserialize,Serialize)]
 pub struct Event {
     #[prost(bytes = "vec", tag = "1")]
     pub id: ::prost::alloc::vec::Vec<u8>,
@@ -31,7 +54,6 @@ pub struct Event {
     pub sig: ::prost::alloc::vec::Vec<u8>,
 }
 
-// adapt with gossip package
 impl Into<Vec<u8>> for Event {
     fn into(self) -> Vec<u8> {
         let mut buf = Vec::new();
@@ -40,10 +62,28 @@ impl Into<Vec<u8>> for Event {
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message,Deserialize,Serialize)]
 pub struct TagArray {
     #[prost(string, repeated, tag = "1")]
     pub values: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// type = request, meta is event byt, type = sync , type = terminate
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VlcMsg {
+    #[prost(string, tag = "1")]
+    pub r#type: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub meta: ::prost::alloc::vec::Vec<u8>,
+}
+/// type = vlc
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ZMessage {
+    #[prost(string, tag = "1")]
+    pub r#type: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub meta: ::prost::alloc::vec::Vec<u8>,
 }
 /// Generated client implementations.
 pub mod zchronod_client {
@@ -149,6 +189,53 @@ pub mod zchronod_client {
             req.extensions_mut().insert(GrpcMethod::new("zchronod.zchronod", "send"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn query_poll_list(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollListResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/zchronod.zchronod/query_poll_list",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("zchronod.zchronod", "query_poll_list"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn query_poll_event_state(
+            &mut self,
+            request: impl tonic::IntoRequest<super::QueryPollEventRequest>,
+        ) -> std::result::Result<tonic::Response<super::PollEventState>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/zchronod.zchronod/query_poll_event_state",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("zchronod.zchronod", "query_poll_event_state"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -162,6 +249,17 @@ pub mod zchronod_server {
             &self,
             request: tonic::Request<super::ZchronodRequest>,
         ) -> std::result::Result<tonic::Response<super::ZchronodResp>, tonic::Status>;
+        async fn query_poll_list(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::PollListResponse>,
+            tonic::Status,
+        >;
+        async fn query_poll_event_state(
+            &self,
+            request: tonic::Request<super::QueryPollEventRequest>,
+        ) -> std::result::Result<tonic::Response<super::PollEventState>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ZchronodServer<T: Zchronod> {
@@ -271,6 +369,97 @@ pub mod zchronod_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = sendSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/zchronod.zchronod/query_poll_list" => {
+                    #[allow(non_camel_case_types)]
+                    struct query_poll_listSvc<T: Zchronod>(pub Arc<T>);
+                    impl<T: Zchronod> tonic::server::UnaryService<super::Empty>
+                    for query_poll_listSvc<T> {
+                        type Response = super::PollListResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Zchronod>::query_poll_list(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = query_poll_listSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/zchronod.zchronod/query_poll_event_state" => {
+                    #[allow(non_camel_case_types)]
+                    struct query_poll_event_stateSvc<T: Zchronod>(pub Arc<T>);
+                    impl<
+                        T: Zchronod,
+                    > tonic::server::UnaryService<super::QueryPollEventRequest>
+                    for query_poll_event_stateSvc<T> {
+                        type Response = super::PollEventState;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::QueryPollEventRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Zchronod>::query_poll_event_state(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = query_poll_event_stateSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

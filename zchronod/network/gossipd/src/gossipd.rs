@@ -3,6 +3,7 @@ use std::{
     hash::{Hash, Hasher},
     time::Duration,
 };
+use tokio::task::yield_now;
 
 use {
     futures::stream::StreamExt,
@@ -53,6 +54,7 @@ pub struct Gossipd<T> {
     channel: (Sender<T>, Receiver<T>),
     handler: Option<fn(PeerId, Message)>,
     options: GossipdOptions,
+    distributor: Option<std::sync::mpsc::Sender<(PeerId,Message)>>,
 }
 
 impl<T: Into<Vec<u8>>> Gossipd<T> {
@@ -86,7 +88,7 @@ impl<T: Into<Vec<u8>>> Gossipd<T> {
                     gossipsub::MessageAuthenticity::Signed(key.clone()),
                     gossipsub_conf,
                 )
-                .expect("failed to create gossipsub behaviour");
+                    .expect("failed to create gossipsub behaviour");
 
                 let mdns = mdns::tokio::Behaviour::new(
                     mdns::Config::default(),
@@ -112,6 +114,7 @@ impl<T: Into<Vec<u8>>> Gossipd<T> {
             channel,
             handler: None,
             options,
+            distributor: None,
         }
     }
 
@@ -119,6 +122,10 @@ impl<T: Into<Vec<u8>>> Gossipd<T> {
         self.transport
             .listen_on(self.options.listen_addr.parse().expect("invalid addr"))
             .expect(format!("failed to listen on {}", self.options.listen_addr).as_str());
+    }
+
+    pub fn register_distributor(&mut self, distribute: std::sync::mpsc::Sender<(PeerId,Message)>) {
+        self.distributor= Option::from(distribute);
     }
 
     pub async fn start(&mut self) {
@@ -159,9 +166,12 @@ impl<T: Into<Vec<u8>>> Gossipd<T> {
                         message_id: _id,
                         message,
                     })) => {
-                        if let Some(handler) = self.handler {
-                            handler(peer_id, message);
+                        if let Some(distribute) = self.distributor.clone() {
+                            distribute.send((peer_id,message)).expect("failed to send")
                         }
+                        // if let Some(handler) = self.handler {
+                        //     handler(peer_id, message);
+                        // }
                     }
                     SwarmEvent::NewListenAddr { address, .. } => {
                         println!("Chronosd is listening on {address}");

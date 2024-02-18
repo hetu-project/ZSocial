@@ -22,3 +22,6 @@ log = "0.4.20"
 bytes = { version = "1.5.0", features = [] }
 api = { version = "0.1.0", path = "../api" }
 proto ={version = "0.1.0",path = "../proto"}
+libp2p = { version = "0.52.4", features = [] }
+chronod = { version = "0.1.0", path = "../chronod" }
+storage = { version = "0.1.0", path = "../storage" }
