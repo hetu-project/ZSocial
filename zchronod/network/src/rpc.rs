@@ -24,9 +24,10 @@ impl RpcServer {
         }
     }
 
-    pub async fn run(&self, zc: Sender<ZMessage>, event_handle: std::sync::mpsc::Sender<Event>, db: Arc<RwLock<ZchronodDb>>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&self, zc: Sender<ZMessage>, event_handle: std::sync::mpsc::Sender<Event>, db: Arc<RwLock<ZchronodDb>>) -> Result<(), Box<dyn std::error::Error>> {
         println!("rpc run");
         info!("[{}] start rpc listen on {}",module_path!(),self.port);
+        println!("[{}] start rpc listen on {}",module_path!(),self.port);
         let addr = self.port.parse()?;
         //  let addr = "127.0.0.1:10020";
         let server = Server::builder()
@@ -107,7 +108,7 @@ impl Zchronod for ZchronodService {
     }
 
     async fn query_poll_list(&self, request: Request<Empty>) -> Result<Response<PollListResponse>, Status> {
-
+        println!("query_poll_list here");
         let poll_list = self.db.read().unwrap().query_all_event_id().unwrap();
 
         Ok(Response::new(PollListResponse {
@@ -116,10 +117,16 @@ impl Zchronod for ZchronodService {
     }
 
     async fn query_poll_event_state(&self, request: Request<QueryPollEventRequest>) -> Result<Response<PollEventState>, Status> {
-       println!("sglk: query_poll_event_stat here");
+       println!("query_poll_event_stat here");
         let state = self.db.read().unwrap().query_poll_event_state(request.into_inner().eventid).unwrap();
+        let mut string_vec: Vec<String> = Vec::new();
+        for (string_val, int_val) in state {
+            let int_as_string = int_val.to_string();
+            string_vec.push(string_val);
+            string_vec.push(int_as_string);
+        }
         Ok(Response::new(PollEventState {
-            state: state,
+            state: string_vec,
         }))
     }
 }

@@ -116,13 +116,27 @@ impl ZchronodDb {
             match reader.get(&self.state, "poll_id".to_string())? {
                 Some(t) => {
                     let mut poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
+                    println!("get poll_id, {:?}", &poll_id_list);
                     poll_id_list.push(e.id.clone());
                     writer.put(&self.state, "poll_id".to_string(), serde_json::to_string(&poll_id_list).unwrap());
                 }
-                None => { writer.put(&self.state, "poll_id".to_string(), e.id.clone()); }
+                None => {
+                    let mut poll_id_list: Vec<Vec<u8>> = Vec::new();
+                    poll_id_list.push(e.id.clone());
+                    let json_write = serde_json::to_string(&poll_id_list).unwrap();
+                    println!("write poll_id, {:?}", &json_write);
+                    writer.put(&self.state, "poll_id".to_string(), json_write);
+                }
             }
             writer.commit()?;
+        } else {
+            println!("poll write key which is {:?} has saved", key);
         }
+
+        // println!("query test here");
+        // drop(reader);
+        // let q_result = self.query_all_event_id().unwrap();
+        // println!("query poll_id, {:?}", q_result);
         Ok(())
     }
 
@@ -139,6 +153,7 @@ impl ZchronodDb {
                 event_id = item.values.get(1).unwrap().to_string();
             }
             if item.values.get(0).unwrap().to_string() == "poll_r".to_string() {
+                // option start with 1
                 for i in 1..=item.values.len() - 1 {
                     option_vote.push(item.values.get(i).unwrap().to_string());
                     println!("insert poll_r index {} , which is {}", i, item.values.get(i).unwrap().to_string());
@@ -147,7 +162,7 @@ impl ZchronodDb {
         }
 
         let key = format!("3041_{}_state", event_id);
-        println!("vote write key is {:?}", key.clone());
+        println!("vote write key is {:?}, should find this poll_key in db", key.clone());
         // read state, update, write
         let reader = self.inner.reader()?;
 
@@ -163,16 +178,22 @@ impl ZchronodDb {
             }
         }
 
+        println!("after update vote {:?}",&op_read_state.option_vec);
+
         // write
         let mut writer = self.inner.writer()?;
         let wirte_json_string = serde_json::to_string(&op_read_state).unwrap();
-        writer.put(&self.state, key.to_string(), wirte_json_string);
+        writer.put(&self.state, key.to_string(), wirte_json_string).expect("failed to put vote state");
         writer.commit()?;
 
+        // test query poll_event state
+        drop(reader);
+        let state_poll = self.query_poll_event_state(event_id).unwrap();
+        println!("vote test state_poll is [{:?}]", state_poll);
         Ok(())
     }
 
-    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<String>, Error> {
+    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<(String,i32)>, Error> {
         // construct key
         let key = format!("3041_{}_state", event_id);
         println!("vote write key is {:?}", key.clone());
@@ -180,28 +201,27 @@ impl ZchronodDb {
 
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
 
-        let  op_state: OptionState = serde_json::from_str(state).unwrap();
-        let mut result:Vec<String> =vec![];
-        for element in op_state.option_vec{
-            result.push(element.0);
+        let op_state: OptionState = serde_json::from_str(state).unwrap();
+        let mut result: Vec<(String,i32)> = vec![];
+        for element in op_state.option_vec {
+            result.push(element);
         }
         Ok(result)
     }
-    pub fn query_all_event_id(&self) -> Result<(Vec<Vec<u8>>), Error> {
+    pub fn query_all_event_id(&self) -> Result<Vec<Vec<u8>>, Error> {
         let reader = self.inner.reader()?;
-        match reader.get(&self.state, "poll_id".to_string())? {
+        return match reader.get(&self.state, "poll_id".to_string())? {
             Some(t) => {
                 let poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
-                Ok::<Vec<Vec<u8>>, Error>(poll_id_list)
+                println!("query all poll_event_id, {:?}", &poll_id_list);
+                Ok(poll_id_list)
             }
             None => {
                 println!("find none in query_all_event_id");
                 info!("find none in query_all_event_id");
                 Ok(vec![vec![]])
             }
-        }.expect("err in query_all_event_id");
-
-        Ok(vec![vec![]])
+        };
     }
 
     fn write_3041_db(&self, key: &str, option_state: HashMap<String, i32>) -> Result<(), Error> {

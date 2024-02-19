@@ -14,7 +14,7 @@ use crate::zchronod::{Empty, QueryPollEventRequest, TagArray, ZchronodRequest, Z
 use crate::zchronod::Event as c_Event;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::message::IncomingMessage::Query;
+use crate::message::IncomingMessage::{Query, QueryPollList};
 use tokio::runtime::Runtime;
 use serde_json::{json, Value};
 
@@ -120,34 +120,39 @@ fn get_current_system_time() -> i64 {
 
 impl Server {
     fn query_poll_list(&self) -> Vec<Vec<u8>> {
-        let mut rt = Runtime::new().unwrap();
-        //let zi = self.zchronod_ip.clone();
-        let zi = "127.0.0.1:10020".to_string();
+        println!("query poll list here");
 
         let (sender, receiver) = mpsc::channel();
-
-        // let sender = Arc::new(sender);
-        rt.block_on(async move {
-            let grpc_server_addr = format!("http://{}", zi);
-
-            let mut client = ZchronodClient::connect(grpc_server_addr).await.unwrap();
+        thread::spawn(move || {
+            let mut rt = Runtime::new().unwrap();
+            //let zi = self.zchronod_ip.clone();
+            let zi = "127.0.0.1:10020".to_string();
 
 
-            let request = tonic::Request::new(Empty {});
+            // let sender = Arc::new(sender);
+            rt.block_on(async move {
+                let grpc_server_addr = format!("http://{}", zi);
 
-            match client.query_poll_list(request).await {
-                Ok(response) => {
-                    let pl = response.into_inner().poll_list;
-                    println!("Received response: {:?}", &pl);
-                    sender.send(pl).unwrap();
+                let mut client = ZchronodClient::connect(grpc_server_addr).await.unwrap();
+
+
+                let request = tonic::Request::new(Empty {});
+
+                match client.query_poll_list(request).await {
+                    Ok(response) => {
+                        let pl = response.into_inner().poll_list;
+                        println!("Received response: {:?}", &pl);
+                        sender.send(pl).unwrap();
+                    }
+                    Err(_) => {
+                        println!("failed to send")
+                    }
                 }
-                Err(_) => {
-                    println!("failed to send")
-                }
-            }
+            });
         });
+
         let received_vec = receiver.recv().unwrap();
-        drop(rt);
+        // drop(rt);
         received_vec
     }
     async fn send_to_chronod_event(&self, e: Event) {
@@ -203,8 +208,8 @@ impl Server {
     }
 }
 
-async fn query_poll_list(tx: Sender<Vec<String>>, eventid: String) {
-    let mut rt = Runtime::new().unwrap();
+async fn query_poll_state(tx: Sender<Vec<String>>, eventid: String) {
+  //  let mut rt = Runtime::new().unwrap();
     //let zi = self.zchronod_ip.clone();
     let zi = "127.0.0.1:10020".to_string();
 
@@ -267,6 +272,8 @@ async fn send_to_chronod_event(e: Event) {
     // });
     info!("should send");
     println!("{:?}",e_c.id());
+    let hex_string_back: String = hex::encode(e_c.id());
+    println!("here string id back {:?}", hex_string_back);
     let request = tonic::Request::new(ZchronodRequest {
         msg: Some(c_Event {
             id: Vec::from(e_c.id()),
@@ -320,25 +327,42 @@ impl Handler<ClientMessage> for Server {
     fn handle(&mut self, msg: ClientMessage, ctx: &mut Self::Context) {
         println!("sglk: receive here {:?}", msg);
         let msg_c = msg.clone();
-        let event_id = transfer_query(msg_c.text);
-        if event_id !="" {
-            info!("receive query poll here");
-            println!("receive query poll here");
-            let (tx, recv) = mpsc::channel();
-            let cs = event_id.clone();
-            thread::spawn(move || {
-                let mut rt = Runtime::new().unwrap();
-                rt.block_on(async { query_poll_list(tx, cs).await; })
-            });
-
-            let poll_list = recv.recv().unwrap();
-            let json_string = json!(poll_list);
-            //  let json_string = serde_json::to_string(&poll_list).unwrap();
-            self.send_to_client(msg.id, OutgoingMessage {
-                0: json_string.to_string(),
-            });
-        }
+        // let event_id = transfer_query(msg_c.text);
+        // if event_id !="" {
+        //     info!("receive query poll here");
+        //     println!("receive query poll here");
+        //     let (tx, recv) = mpsc::channel();
+        //     let cs = event_id.clone();
+        //     thread::spawn(move || {
+        //         let mut rt = Runtime::new().unwrap();
+        //         rt.block_on(async { query_poll_state(tx, cs).await; })
+        //     });
+        //
+        //     let poll_list = recv.recv().unwrap();
+        //     let json_string = json!(poll_list);
+        //     //  let json_string = serde_json::to_string(&poll_list).unwrap();
+        //     self.send_to_client(msg.id, OutgoingMessage {
+        //         0: json_string.to_string(),
+        //     });
+        // }
         match msg.msg {
+            QueryPollList(s) => {
+                info!("receive query poll list here");
+                println!("receive query poll list here");
+                let poll_list = self.query_poll_list();
+                // key is 3041_event-id_state
+                println!("receive poll_list");
+                let mut list = vec!();
+                for element in poll_list {
+                    let hex_string_back: String = hex::encode(element);
+                    println!("{:?}", &hex_string_back);
+                    list.push(hex_string_back);
+                }
+                let json_string = json!(list);
+                self.send_to_client(msg.id, OutgoingMessage {
+                    0: json_string.to_string(),
+                });
+            }
             Query(s) => {
                 info!("receive query poll here");
                 println!("receive query poll here");
@@ -346,11 +370,12 @@ impl Handler<ClientMessage> for Server {
                 let cs = s.clone();
                 thread::spawn(move || {
                     let mut rt = Runtime::new().unwrap();
-                    rt.block_on(async { query_poll_list(tx, cs).await; })
+                    rt.block_on(async { query_poll_state(tx, cs.id).await; })
                 });
 
-                let poll_list = recv.recv().unwrap();
-                let json_string = json!(poll_list);
+                let poll_state = recv.recv().unwrap();
+                println!("query poll state, result is [{:?}]", poll_state);
+                let json_string = json!(poll_state);
                 //  let json_string = serde_json::to_string(&poll_list).unwrap();
                 self.send_to_client(msg.id, OutgoingMessage {
                     0: json_string.to_string(),
@@ -361,16 +386,38 @@ impl Handler<ClientMessage> for Server {
                 // save all event
                 // save ephemeral for check duplicate, disconnection recovery, will be deleted
                 let cp = event.clone();
-                thread::spawn(move || {
+                let handle1 = thread::spawn(move || {
                     let cpp = cp.clone();
                     let mut rt = Runtime::new().unwrap();
-                    rt.block_on(async { send_to_chronod_event(cpp).await; })
+                    rt.block_on(send_to_chronod_event(cpp))
                 });
+                handle1.join().unwrap();
                 self.send_to_client(msg.id, OutgoingMessage {
                     0: "zchronod has received".to_string(),
                 });
+                println!("should send back [{:?}]", msg.id);
                 //self.send_to_chronod_event(event.clone());
-                self.writer.do_send(WriteEvent { id: msg.id, event })
+                self.writer.do_send(WriteEvent { id: msg.id, event });
+                // test query
+                let poll_list = self.query_poll_list();
+                // key is 3041_event-id_state
+                println!("receive poll_list");
+                for element in poll_list {
+                    let hex_string_back: String = hex::encode(element);
+                    println!("{:?}", &hex_string_back);
+                }
+
+                // test poll state
+                let (tx, recv) = mpsc::channel();
+                thread::spawn(move || {
+                    let mut rt = Runtime::new().unwrap();
+                    rt.block_on(async { query_poll_state(tx, "082155c14942cbe52fcc188711cdce699c812da4532d55af34cc557ae6728b98".to_string()).await; })
+                });
+
+                let poll_state = recv.recv().unwrap();
+                println!("receive poll_state");
+                println!("{:?}", poll_state);
+
             }
             IncomingMessage::Close(id) => self.subscriber.do_send(Unsubscribe {
                 id: msg.id,

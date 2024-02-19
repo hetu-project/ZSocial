@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         crate_description!(),
     ).get_matches();
 
-    process_cmd(&matches).await.expect("failed to process cmd");
+    process_cmd(&matches).expect("failed to process cmd");
 
     println!("init ok");
     // RT.block_on(async {
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
     Ok(())
 }
 
-async fn process_cmd(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
+fn process_cmd(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
     // to add handle cmd
     if let Some(f) = matches.value_of("log_path") {
         //zchronod_logger::init_zchronod_logger_with_path(f, &find_env("RUST_LOG"))
@@ -43,7 +43,7 @@ async fn process_cmd(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Erro
         zchronod_logger::init_zhronod_log_with_default()
     }
     let config = matches.value_of("config").unwrap_or("./chronod.yaml");
-    process::init_chrono_node(config).await;
+    process::init_chrono_node(config);
     Ok(())
 }
 
