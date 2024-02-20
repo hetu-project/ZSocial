@@ -1,7 +1,7 @@
 use std::{fs, thread};
 use std::cmp::Ordering;
 use std::sync::{Arc, mpsc, Mutex, RwLock};
-use log::info;
+use log::{error, info};
 use network::{GossipServer, RpcServer};
 use api::{CONTEXT, NetworkInterface, Node};
 use serde::{Deserialize, Serialize};
@@ -88,6 +88,14 @@ impl ZchronodServer {
 
     fn distribute_event_msg_to_db(&self, e: Event) {
         println!("distribute rpc msg here");
+        match self.z_db.write().unwrap().event_write(e.clone()) {
+            Ok(_) => {}
+            Err(_) => {
+                error!("event id duplicated");
+                println!("event id duplicated");
+                return;
+            }
+        }
         if e.kind == 301 {
             println!("receive kind 301 poll");
             info!("receive kind 301 poll");

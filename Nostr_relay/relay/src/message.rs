@@ -106,6 +106,7 @@ pub enum IncomingMessage {
     /// nip-3041
     Query(QueryPollState),
     QueryPollList(String),
+    QueryEventMeta(String),
     /// nip-42
     Auth(Event),
     /// nip-45
@@ -124,6 +125,7 @@ impl IncomingMessage {
             IncomingMessage::Unknown(cmd, _) => cmd,
             IncomingMessage::Query(_) => "QUERY",
             IncomingMessage::QueryPollList(_) => "QUERYPOLLLIST",
+            IncomingMessage::QueryEventMeta(_) => "QUERYEVENTMETA",
         }
     }
 
@@ -137,6 +139,7 @@ impl IncomingMessage {
             IncomingMessage::Unknown(_, _) => None,
             IncomingMessage::Query(_) => Some("QUERY"),
             IncomingMessage::QueryPollList(_) => Some("QUERYPOLLLIST"),
+            IncomingMessage::QueryEventMeta(_) => Some("QUERYEVENTMETA"),
         }
     }
 }
@@ -191,6 +194,10 @@ impl<'de> Visitor<'de> for MessageVisitor {
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?,
             )),
             "QUERYPOLLLIST" => Ok(IncomingMessage::QueryPollList(
+                seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?,
+            )),
+            "QUERYEVENTMETA" => Ok(IncomingMessage::QueryEventMeta(
                 seq.next_element()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?,
             )),

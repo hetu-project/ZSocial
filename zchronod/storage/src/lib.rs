@@ -25,6 +25,8 @@ use proto::zchronod::Event;
 
 use serde::{Serialize, Deserialize};
 use log::info;
+use log::kv::ToKey;
+use serde::de::Unexpected::Str;
 
 pub struct ZchronodDb {
     inner: Db,
@@ -100,11 +102,14 @@ impl ZchronodDb {
             // option start with index 5
             // let mut option_hmap: HashMap<String, i32> = HashMap::new();
             let mut option_vec: Vec<(String, i32)> = vec![];
-            for i in 5..=poll_tag.len() - 1 {
+            // ["poll", "single", "0","1707294126","1707294126", "I'm a title!","This a demo survey!" "Option 1", "Option 2", "Option 3"]
+            for i in 7..=poll_tag.len() - 1 {
                 //option_hmap.insert(poll_tag.get(i).unwrap().to_string(), 0);
                 option_vec.push((poll_tag.get(i).unwrap().to_string(), 0));
                 println!("insert index {} , which is {}", i, poll_tag.get(i).unwrap().to_string());
             }
+            let title = poll_tag.get(5).unwrap().to_string();
+            let info = poll_tag.get(6).unwrap().to_string();
             let o_s = OptionState {
                 // map: option_hmap,    // to generate option with 0
                 option_vec,
@@ -115,14 +120,23 @@ impl ZchronodDb {
             writer.put(&self.state, key.clone(), option_state);
             match reader.get(&self.state, "poll_id".to_string())? {
                 Some(t) => {
-                    let mut poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
+                    let mut poll_id_list: Vec<Vec<String>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
                     println!("get poll_id, {:?}", &poll_id_list);
-                    poll_id_list.push(e.id.clone());
+                    // transfer u8 to hex
+                    let s_poll_id: String = hex::encode(e.id.clone());
+                    let mut s_poll = vec![];
+                    s_poll.extend([s_poll_id, title, info]);
+                    poll_id_list.push(s_poll);
+                    println!("after update, get poll_id, {:?}", &poll_id_list);
+                    // poll_id_list.push(e.id.clone());
                     writer.put(&self.state, "poll_id".to_string(), serde_json::to_string(&poll_id_list).unwrap());
                 }
                 None => {
-                    let mut poll_id_list: Vec<Vec<u8>> = Vec::new();
-                    poll_id_list.push(e.id.clone());
+                    let mut poll_id_list: Vec<Vec<String>> = Vec::new();
+                    let mut s_poll = vec![];
+                    let s_poll_id: String = hex::encode(e.id.clone());
+                    s_poll.extend([s_poll_id, title, info]);
+                    poll_id_list.push(s_poll);
                     let json_write = serde_json::to_string(&poll_id_list).unwrap();
                     println!("write poll_id, {:?}", &json_write);
                     writer.put(&self.state, "poll_id".to_string(), json_write);
@@ -140,6 +154,25 @@ impl ZchronodDb {
         Ok(())
     }
 
+    pub fn event_write(&self, e: Event) -> Result<(), Error> {
+        let key: String = hex::encode(e.id.clone());
+        let reader = self.inner.reader()?;
+        let mut writer = self.inner.writer()?;
+        if reader.get(&self.state, key.clone())?.is_none() {
+            println!("need to save event [{:?}]", key.clone());
+            let event_bytes = serde_json::to_vec(&e).unwrap();
+            writer.put(&self.state, key.clone(), event_bytes);
+            writer.commit()?;
+            // let serialized = serde_json::to_vec(&event_1).unwrap();
+            // let _v2 = reader.get(&t2,"k4")?.unwrap();
+            // let deserialized: Event = serde_json::from_slice(&_v2).unwrap();
+        } else {
+            println!("event id has been saved, dont need to write event id which is [{:?}]", key.clone());
+          return Err(Error::Message("event id has saved".to_string()))
+        }
+
+        Ok(())
+    }
     pub fn vote_write(&self, e: Event) -> Result<(), Error> {
         // construct key
         let mut vote_tag = e.tags.clone();
@@ -178,7 +211,7 @@ impl ZchronodDb {
             }
         }
 
-        println!("after update vote {:?}",&op_read_state.option_vec);
+        println!("after update vote {:?}", &op_read_state.option_vec);
 
         // write
         let mut writer = self.inner.writer()?;
@@ -193,26 +226,30 @@ impl ZchronodDb {
         Ok(())
     }
 
-    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<(String,i32)>, Error> {
+    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<(String, i32)>, Error> {
         // construct key
         let key = format!("3041_{}_state", event_id);
         println!("vote write key is {:?}", key.clone());
         let reader = self.inner.reader()?;
-
+        if reader.get(&self.state, key.clone())?.is_none() {
+            info!("query_poll_event_state is none which id is [{:?}]",event_id);
+            println!("query_poll_event_state is none which id is [{:?}]",event_id);
+           return Ok(vec![])
+        }
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
 
         let op_state: OptionState = serde_json::from_str(state).unwrap();
-        let mut result: Vec<(String,i32)> = vec![];
+        let mut result: Vec<(String, i32)> = vec![];
         for element in op_state.option_vec {
             result.push(element);
         }
         Ok(result)
     }
-    pub fn query_all_event_id(&self) -> Result<Vec<Vec<u8>>, Error> {
+    pub fn query_all_event_id(&self) -> Result<Vec<Vec<String>>, Error> {
         let reader = self.inner.reader()?;
         return match reader.get(&self.state, "poll_id".to_string())? {
             Some(t) => {
-                let poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
+                let poll_id_list: Vec<Vec<String>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
                 println!("query all poll_event_id, {:?}", &poll_id_list);
                 Ok(poll_id_list)
             }
@@ -252,5 +289,18 @@ impl ZchronodDb {
         Ok(())
     }
 
-    fn query_by_event_id() {}
+    pub fn query_by_event_id(&self, event_id:String)-> Result<Event, Error>  {
+        let reader = self.inner.reader()?;
+        return match reader.get(&self.state, event_id)? {
+            Some(t) => {
+                let event:Event = serde_json::from_slice(t).unwrap();
+                Ok(event)
+            }
+            None => {
+                println!("find none in query_by_event_id");
+                info!("find none in query_by_event_id");
+                Ok(Default::default())
+            }
+        };
+    }
 }

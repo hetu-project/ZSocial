@@ -119,21 +119,21 @@ impl Session {
                     text,
                     msg,
                 };
-                {
-                    let r = self.app.setting.read();
-                    if let Err(err) = msg.validate(&r.limitation) {
-                        if let IncomingMessage::Event(event) = &msg.msg {
-                            ctx.text(OutgoingMessage::ok(
-                                &event.id_str(),
-                                false,
-                                &err.to_string(),
-                            ));
-                        } else {
-                            ctx.text(OutgoingMessage::notice(&err.to_string()));
-                        }
-                        return;
-                    }
-                }
+                // {
+                //     let r = self.app.setting.read();
+                //     if let Err(err) = msg.validate(&r.limitation) {
+                //         if let IncomingMessage::Event(event) = &msg.msg {
+                //             ctx.text(OutgoingMessage::ok(
+                //                 &event.id_str(),
+                //                 false,
+                //                 &err.to_string(),
+                //             ));
+                //         } else {
+                //             ctx.text(OutgoingMessage::notice(&err.to_string()));
+                //         }
+                //         return;
+                //     }
+                // }
 
                 match self
                     .app
