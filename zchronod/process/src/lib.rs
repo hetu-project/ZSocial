@@ -88,6 +88,24 @@ impl ZchronodServer {
 
     fn distribute_event_msg_to_db(&self, e: Event) {
         println!("distribute rpc msg here");
+        if e.kind == 301 {
+            println!("receive kind 301 poll");
+            info!("receive kind 301 poll");
+           match self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e.clone()) {
+               Ok(_) => {}
+               Err(_) => {return;}
+           }
+        }
+
+        if e.kind == 309 {
+            println!("receive kind 309 vote");
+            info!("receive kind 309 vote");
+            match self.z_db.write().unwrap().vote_write(e.clone()) {
+                Ok(_) => {}
+                Err(_) => { return; }
+            }
+        }
+
         match self.z_db.write().unwrap().event_write(e.clone()) {
             Ok(_) => {}
             Err(_) => {
@@ -95,18 +113,6 @@ impl ZchronodServer {
                 println!("event id duplicated");
                 return;
             }
-        }
-        if e.kind == 301 {
-            println!("receive kind 301 poll");
-            info!("receive kind 301 poll");
-            self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e);
-            return;
-        }
-
-        if e.kind == 309 {
-            println!("receive kind 309 vote");
-            info!("receive kind 309 vote");
-            self.z_db.write().unwrap().vote_write(e);
         }
     }
 

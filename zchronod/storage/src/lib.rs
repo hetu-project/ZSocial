@@ -1,36 +1,26 @@
-// 1. formula存储3041事件状态
-// k : 3041_event-id_state
-// v:  event_state
 
-// // 创建一个空的 HashMap
-//let mut map = HashMap::new();
-//
-// // 插入键值对
-// map.insert("key1", "value1");
-// map.insert("key2", "value2");
-//
-// // 获取值
-// match map.get("key1") {
-// Some(value) => println!("The value of key1 is: {}", value),
-// None => println!("Key1 not found"),
-// }
+mod bloomfilter;
+mod cache;
 
 use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::string::ToString;
+use std::sync::{Arc, Mutex};
 use nostr_kv::lmdb::Db;
 
+use cache::Cache;
 use nostr_kv::{Error, lmdb::{Db as Lmdb, Iter as LmdbIter, *}, scanner::{Group, GroupItem, MatchResult, Scanner}};
 use proto::zchronod::Event;
 
 use serde::{Serialize, Deserialize};
 use log::info;
-use log::kv::ToKey;
+//use log::kv::ToKey;
 use serde::de::Unexpected::Str;
 
 pub struct ZchronodDb {
     inner: Db,
     state: Tree,
+    cache: Arc<Mutex<Cache>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,9 +44,14 @@ impl ZchronodDb {
     pub fn init() -> Result<Self> {
         let lmdb = Db::open("./db")?;
         let state = lmdb.open_tree(Some(TREE_NAME), 0)?;
+        let cache = Arc::new(Mutex::new(
+            Cache::new(&lmdb, &state)
+        ));
         Ok(ZchronodDb {
             inner: lmdb,
             state,
+            //   cache,
+            cache,
         })
     }
 
@@ -142,6 +137,7 @@ impl ZchronodDb {
                     writer.put(&self.state, "poll_id".to_string(), json_write);
                 }
             }
+            self.cache.lock().unwrap().set_poll_event(key);
             writer.commit()?;
         } else {
             println!("poll write key which is {:?} has saved", key);
@@ -168,7 +164,7 @@ impl ZchronodDb {
             // let deserialized: Event = serde_json::from_slice(&_v2).unwrap();
         } else {
             println!("event id has been saved, dont need to write event id which is [{:?}]", key.clone());
-          return Err(Error::Message("event id has saved".to_string()))
+            return Err(Error::Message("event id has saved".to_string()));
         }
 
         Ok(())
@@ -179,7 +175,7 @@ impl ZchronodDb {
         let mut event_id = "".to_string();
         let mut option_vote: Vec<String> = vec![];
         let event_symbol = "e".to_string();
-
+        let reader = self.inner.reader()?;
         // should be once in item
         for item in &mut vote_tag {
             if item.values.get(0).unwrap().to_string() == event_symbol {
@@ -194,10 +190,32 @@ impl ZchronodDb {
             }
         }
 
-        let key = format!("3041_{}_state", event_id);
+        // check single mutil poll, single option vote len should be 1
+        let poll_event = match reader.get(&self.state, event_id.clone())? {
+            Some(t) => {
+                let event: Event = serde_json::from_slice(t).unwrap();
+                event
+            }
+            None => {
+                println!("find none in query_by_event_id");
+                info!("find none in query_by_event_id");
+                Event::default()
+            }
+        };
+
+        if poll_event.id.len() == 0 {
+            return Err(Error::Message("poll event id not found".to_string()));
+        }
+
+        if poll_event.tags[0].values[1].to_string() == "single".to_string() && option_vote.len() != 1 {
+            println!("vote option len should be 1 in single option vote, whose len is {:?}", option_vote.len());
+            info!("vote option len should be 1 in single option vote, whose len is {:?}", option_vote.len());
+            return Err(Error::Message("single option vote len should be 1".to_string()));
+        }
+
+        let key = format!("3041_{}_state", event_id.clone());
         println!("vote write key is {:?}, should find this poll_key in db", key.clone());
         // read state, update, write
-        let reader = self.inner.reader()?;
 
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
         let mut op_read_state: OptionState = serde_json::from_str(state).unwrap();
@@ -230,11 +248,17 @@ impl ZchronodDb {
         // construct key
         let key = format!("3041_{}_state", event_id);
         println!("vote write key is {:?}", key.clone());
+
+        // bloom query
+        if !self.cache.lock().unwrap().validate_poll_event(key.clone()) {
+            info!("query_poll_event_state via bloom filter is none which id is [{:?}]",event_id.clone());
+            return Ok(vec![]);
+        }
         let reader = self.inner.reader()?;
         if reader.get(&self.state, key.clone())?.is_none() {
             info!("query_poll_event_state is none which id is [{:?}]",event_id);
-            println!("query_poll_event_state is none which id is [{:?}]",event_id);
-           return Ok(vec![])
+            println!("query_poll_event_state is none which id is [{:?}]", event_id);
+            return Ok(vec![]);
         }
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
 
@@ -279,7 +303,7 @@ impl ZchronodDb {
                             }
                         }
                     }
-                    Err(_) => { return Err(Error::Message("failed to get state in db".to_string())); }// 如果结果是 Err，则返回错误消息
+                    Err(_) => { return Err(Error::Message("failed to get state in db".to_string())); }
                 }
                 //  op_state = std::str::from_utf8(state_bytes);
             }
@@ -289,11 +313,11 @@ impl ZchronodDb {
         Ok(())
     }
 
-    pub fn query_by_event_id(&self, event_id:String)-> Result<Event, Error>  {
+    pub fn query_by_event_id(&self, event_id: String) -> Result<Event, Error> {
         let reader = self.inner.reader()?;
         return match reader.get(&self.state, event_id)? {
             Some(t) => {
-                let event:Event = serde_json::from_slice(t).unwrap();
+                let event: Event = serde_json::from_slice(t).unwrap();
                 Ok(event)
             }
             None => {
