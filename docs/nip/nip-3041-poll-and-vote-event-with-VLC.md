@@ -14,7 +14,9 @@ To create a poll, include a `poll` tag in the message event. with the following 
 tag: poll
 options:
  - <multi|single> allow others to reply with one or multiple options
- - <clock> LC(in depth|VLC) when surv expires,0 LC the uplimit of VLC(2M)
+ - <clock> optional(not confirmed)LC(in depth|VLC) when surv expires,0 LC the uplimit of VLC(2M)
+ - <start> poll start timestamp
+ - <end> poll end timestamp
  - <title>event name
  - <info>optional Poll & Vote information ("" if not present)
  - [<option>]: array of string
@@ -28,7 +30,7 @@ options:
   "kind": 301,
   "tags": [
     ...
-    ["poll", "single", "0", "I'm a title!","This a demo survey!" "Option 1", "Option 2", "Option 3"],
+    ["poll", "single", "0","1707294126","1707294126", "I'm a title!","This a demo survey!" "Option 1", "Option 2", "Option 3"],
     ...
   ],
 }
@@ -67,18 +69,27 @@ options:
 }
 ```
 
+
 #### State Query
 
 Relays implement Poll & Vote should to count the result of Vote, to simplify the design, the VLC will not be responsible for state-related calculations. The format of the State Query is the following:
 
 ```
-["QUERY", <Specific SID>]
+["QUERY", <Specific SID>(Event ID)]
 ```
 
-Results are returned using a RESULT response in the form {"Option": } with VLC
+Results are returned using a RESULT response in the form:
 
 ```
-["QUERY", <Specific SID>,<clock>,<clock_depth>, {"Option 1": <integer>,"Option 2": <integer>,"Option 3": <integer>...}]
+[
+    "Option 1",
+     <integer>,
+    "Option 2",
+     <integer>,
+    "Option 3",
+    <integer>,
+    ...
+]
 ```
 
 Whether Relay refuses to reply or times out, which is determined by the Relay or Client itself.
@@ -87,3 +98,63 @@ If client need full stat, it should download all kind 309 associated with Specif
 
 
 
+#### SIDs Query
+Client sends message to relay to get the list of SIDs(Event ID)
+
+```
+["QUERYPOLLLIST",""]
+```
+Response from relay is:
+```
+[
+  [
+    "id": <Specific SID>,
+    "title": <title>,
+    "info": <info>
+  ],
+  [
+    "id": <Specific SID>,
+    "title": <title>,
+    "info": <info>
+  ],
+  [
+    "id": <Specific SID>,
+    "title": <title>,
+    "info": <info>
+  ]
+  ...
+]
+```
+
+#### Query Poll metadata
+Client sends message to relay to get the contents of poll through SIDs(Event ID)
+
+```
+["QUERYEVENTMETA",<Specific SID>]
+```
+Response from relay is:
+```
+{
+    "id": <Specific SID>,
+    "pubkey": <public key>,
+    "created_at": <timestamp>,
+    "kind": <kind code>,
+    "tags": [
+        {
+	    "values": [
+			"poll",
+			"single",
+			"0",
+			"2024-02-21T08:37",
+			"2024-02-21T20:37",
+			"testdemo",
+			"123456",
+			"Yes",
+			"No"
+		]
+	}
+    ],
+    "content": "",
+    "sig": <signature>
+}
+```

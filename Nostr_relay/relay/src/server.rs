@@ -450,13 +450,13 @@ impl Handler<ClientMessage> for Server {
                 //self.send_to_chronod_event(event.clone());
                 self.writer.do_send(WriteEvent { id: msg.id, event });
                 // test query
-                let poll_list = self.query_poll_list();
-                // key is 3041_event-id_state
-                println!("receive poll_list");
-                for element in poll_list {
-                    //    let hex_string_back: String = hex::encode(element);
-                    println!("{:?}", &element);
-                }
+                // let poll_list = self.query_poll_list();
+                // // key is 3041_event-id_state
+                // println!("receive poll_list");
+                // for element in poll_list {
+                //     //    let hex_string_back: String = hex::encode(element);
+                //     println!("{:?}", &element);
+                // }
 
                 // test poll state
                 // let (tx, recv) = mpsc::channel();
