@@ -78,22 +78,17 @@ Relays implement Poll & Vote should to count the result of Vote, to simplify the
 ["QUERY", <Specific SID>(Event ID)]
 ```
 
-Results are returned using a RESULT response in the form {"Option": } with VLC
+Results are returned using a RESULT response in the form:
 
 ```
 [
-    "QUERY", 
-    <Specific SID>,
-    <clock>,
-    <clock_depth>,
-    <title>,
-    <info>,
-    {
-        "Option 1": <integer>,
-        "Option 2": <integer>,
-        "Option 3": <integer>
-        ...
-    }
+    "Option 1",
+     <integer>,
+    "Option 2",
+     <integer>,
+    "Option 3",
+    <integer>,
+    ...
 ]
 ```
 
@@ -107,26 +102,59 @@ If client need full stat, it should download all kind 309 associated with Specif
 Client sends message to relay to get the list of SIDs(Event ID)
 
 ```
-["QUERY_SID", <Specific SID>(Event ID)]
+["QUERYPOLLLIST",""]
 ```
 Response from relay is:
 ```
 [
-  {
+  [
     "id": <Specific SID>,
     "title": <title>,
     "info": <info>
-  },
-  {
+  ],
+  [
     "id": <Specific SID>,
     "title": <title>,
     "info": <info>
-  },
-  {
+  ],
+  [
     "id": <Specific SID>,
     "title": <title>,
     "info": <info>
-  }
+  ]
   ...
 ]
+```
+
+#### Query Poll metadata
+Client sends message to relay to get the contents of poll through SIDs(Event ID)
+
+```
+["QUERYEVENTMETA",<Specific SID>]
+```
+Response from relay is:
+```
+{
+    "id": <Specific SID>,
+    "pubkey": <public key>,
+    "created_at": <timestamp>,
+    "kind": <kind code>,
+    "tags": [
+        {
+	    "values": [
+			"poll",
+			"single",
+			"0",
+			"2024-02-21T08:37",
+			"2024-02-21T20:37",
+			"testdemo",
+			"123456",
+			"Yes",
+			"No"
+		]
+	}
+    ],
+    "content": "",
+    "sig": <signature>
+}
 ```
