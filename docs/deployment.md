@@ -6,7 +6,7 @@
 
 ### 1. Download the git repository
 ```
-git clone https://github.com/sglk123/ZSocial.git
+git clone https://github.com/fshif/ZSocial.git
 ```
 ### 2. Run the zchronod
 ```
