@@ -15,7 +15,7 @@ client-relay is designed for forwarding and subscribing to Nostr_NIP-related pro
 compatible with industry-standard Nostr_Relay services and adapted Nostr_NIP3041. zChronod 
 serves as the core service of zSocial, structured into three layers: a storage layer
 utilizing key-value pairs with LMDB for excellent read/write performance. 
-Clock layer implements improved Casual Bloom clocks to achieve eventual consistency 
+Clock layer implements improved Casual clocks to achieve eventual consistency 
 in distributed gossip networks. Network layer uses gossip network  for cluster-wide
 communication of zChronod cluster and set up gRPC services for establishing a simple 
 and efficient P2P network with relay.
