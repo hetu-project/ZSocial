@@ -1,13 +1,13 @@
 use std::sync::{Arc, RwLock};
 use std::thread;
 use tonic::{transport::Server, Request, Response, Status, IntoRequest};
-use log::{debug, info};
+use log::{debug, error, info};
 use log::kv::ToKey;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::Sender;
 use api::{CONTEXT, RT};
 use proto::zchronod::zchronod_server::{Zchronod, ZchronodServer};
-use proto::zchronod::{Empty, Event, PollEventState, PollListResponse, QueryPollEventRequest, ZchronodRequest, ZchronodResp};
+use proto::zchronod::{Empty, Event, EventMeta, PollEventState, PollItem, PollListResponse, QueryEventRequest, QueryPollEventRequest, ZchronodRequest, ZchronodResp};
 use chronod::Clock;
 use chronod::clock::ZMessage;
 use storage::ZchronodDb;
@@ -24,9 +24,10 @@ impl RpcServer {
         }
     }
 
-    pub async fn run(&self, zc: Sender<ZMessage>, event_handle: std::sync::mpsc::Sender<Event>, db: Arc<RwLock<ZchronodDb>>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&self, zc: Sender<ZMessage>, event_handle: std::sync::mpsc::Sender<Event>, db: Arc<RwLock<ZchronodDb>>) -> Result<(), Box<dyn std::error::Error>> {
         println!("rpc run");
         info!("[{}] start rpc listen on {}",module_path!(),self.port);
+        println!("[{}] start rpc listen on {}", module_path!(), self.port);
         let addr = self.port.parse()?;
         //  let addr = "127.0.0.1:10020";
         let server = Server::builder()
@@ -107,19 +108,49 @@ impl Zchronod for ZchronodService {
     }
 
     async fn query_poll_list(&self, request: Request<Empty>) -> Result<Response<PollListResponse>, Status> {
-
+        println!("query_poll_list here");
         let poll_list = self.db.read().unwrap().query_all_event_id().unwrap();
-
+        let mut poll_items: Vec<PollItem> = Vec::new();
+        for inner_vec in poll_list {
+            let poll_item = PollItem {
+                poll_item: inner_vec,
+            };
+            poll_items.push(poll_item);
+        }
         Ok(Response::new(PollListResponse {
-            poll_list: poll_list,
+            item: poll_items,
         }))
     }
 
     async fn query_poll_event_state(&self, request: Request<QueryPollEventRequest>) -> Result<Response<PollEventState>, Status> {
-       println!("sglk: query_poll_event_stat here");
+        println!("query_poll_event_stat here");
         let state = self.db.read().unwrap().query_poll_event_state(request.into_inner().eventid).unwrap();
+        let mut string_vec: Vec<String> = Vec::new();
+        for (string_val, int_val) in state {
+            let int_as_string = int_val.to_string();
+            string_vec.push(string_val);
+            string_vec.push(int_as_string);
+        }
         Ok(Response::new(PollEventState {
-            state: state,
+            state: string_vec,
         }))
+    }
+
+    async fn query_by_event_id(&self, request: Request<QueryEventRequest>) -> Result<Response<EventMeta>, Status> {
+        println!("query_by_event_id here");
+        info!("query_by_event_id here");
+        return match self.db.read().unwrap().query_by_event_id(request.into_inner().eventid.clone()) {
+            Ok(e) => {
+                println!("event is [{:?}]", e.clone());
+                Ok(Response::new(EventMeta {
+                    event: Some(e),
+                }))
+            }
+            Err(_) => {
+                println!("event not saved, return err");
+                error!("event id saved, return err");
+                Err(Status::invalid_argument("event id is invalid"))
+            }
+        }
     }
 }

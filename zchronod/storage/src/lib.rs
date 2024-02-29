@@ -1,22 +1,26 @@
-// 1. formula 3041 event state
-// k : 3041_event-id_state
-// v:  event_state
 
+mod bloomfilter;
+mod cache;
 
 use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::string::ToString;
+use std::sync::{Arc, Mutex};
 use nostr_kv::lmdb::Db;
 
+use cache::Cache;
 use nostr_kv::{Error, lmdb::{Db as Lmdb, Iter as LmdbIter, *}, scanner::{Group, GroupItem, MatchResult, Scanner}};
 use proto::zchronod::Event;
 
 use serde::{Serialize, Deserialize};
 use log::info;
+//use log::kv::ToKey;
+use serde::de::Unexpected::Str;
 
 pub struct ZchronodDb {
     inner: Db,
     state: Tree,
+    cache: Arc<Mutex<Cache>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,9 +44,14 @@ impl ZchronodDb {
     pub fn init() -> Result<Self> {
         let lmdb = Db::open("./db")?;
         let state = lmdb.open_tree(Some(TREE_NAME), 0)?;
+        let cache = Arc::new(Mutex::new(
+            Cache::new(&lmdb, &state)
+        ));
         Ok(ZchronodDb {
             inner: lmdb,
             state,
+            //   cache,
+            cache,
         })
     }
 
@@ -88,11 +97,14 @@ impl ZchronodDb {
             // option start with index 5
             // let mut option_hmap: HashMap<String, i32> = HashMap::new();
             let mut option_vec: Vec<(String, i32)> = vec![];
-            for i in 5..=poll_tag.len() - 1 {
+            // ["poll", "single", "0","1707294126","1707294126", "I'm a title!","This a demo survey!" "Option 1", "Option 2", "Option 3"]
+            for i in 7..=poll_tag.len() - 1 {
                 //option_hmap.insert(poll_tag.get(i).unwrap().to_string(), 0);
                 option_vec.push((poll_tag.get(i).unwrap().to_string(), 0));
                 println!("insert index {} , which is {}", i, poll_tag.get(i).unwrap().to_string());
             }
+            let title = poll_tag.get(5).unwrap().to_string();
+            let info = poll_tag.get(6).unwrap().to_string();
             let o_s = OptionState {
                 // map: option_hmap,    // to generate option with 0
                 option_vec,
@@ -103,30 +115,74 @@ impl ZchronodDb {
             writer.put(&self.state, key.clone(), option_state);
             match reader.get(&self.state, "poll_id".to_string())? {
                 Some(t) => {
-                    let mut poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
-                    poll_id_list.push(e.id.clone());
+                    let mut poll_id_list: Vec<Vec<String>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
+                    println!("get poll_id, {:?}", &poll_id_list);
+                    // transfer u8 to hex
+                    let s_poll_id: String = hex::encode(e.id.clone());
+                    let mut s_poll = vec![];
+                    s_poll.extend([s_poll_id, title, info]);
+                    poll_id_list.push(s_poll);
+                    println!("after update, get poll_id, {:?}", &poll_id_list);
+                    // poll_id_list.push(e.id.clone());
                     writer.put(&self.state, "poll_id".to_string(), serde_json::to_string(&poll_id_list).unwrap());
                 }
-                None => { writer.put(&self.state, "poll_id".to_string(), e.id.clone()); }
+                None => {
+                    let mut poll_id_list: Vec<Vec<String>> = Vec::new();
+                    let mut s_poll = vec![];
+                    let s_poll_id: String = hex::encode(e.id.clone());
+                    s_poll.extend([s_poll_id, title, info]);
+                    poll_id_list.push(s_poll);
+                    let json_write = serde_json::to_string(&poll_id_list).unwrap();
+                    println!("write poll_id, {:?}", &json_write);
+                    writer.put(&self.state, "poll_id".to_string(), json_write);
+                }
             }
+            self.cache.lock().unwrap().set_poll_event(key);
             writer.commit()?;
+        } else {
+            println!("poll write key which is {:?} has saved", key);
         }
+
+        // println!("query test here");
+        // drop(reader);
+        // let q_result = self.query_all_event_id().unwrap();
+        // println!("query poll_id, {:?}", q_result);
         Ok(())
     }
 
+    pub fn event_write(&self, e: Event) -> Result<(), Error> {
+        let key: String = hex::encode(e.id.clone());
+        let reader = self.inner.reader()?;
+        let mut writer = self.inner.writer()?;
+        if reader.get(&self.state, key.clone())?.is_none() {
+            println!("need to save event [{:?}]", key.clone());
+            let event_bytes = serde_json::to_vec(&e).unwrap();
+            writer.put(&self.state, key.clone(), event_bytes);
+            writer.commit()?;
+            // let serialized = serde_json::to_vec(&event_1).unwrap();
+            // let _v2 = reader.get(&t2,"k4")?.unwrap();
+            // let deserialized: Event = serde_json::from_slice(&_v2).unwrap();
+        } else {
+            println!("event id has been saved, dont need to write event id which is [{:?}]", key.clone());
+            return Err(Error::Message("event id has saved".to_string()));
+        }
+
+        Ok(())
+    }
     pub fn vote_write(&self, e: Event) -> Result<(), Error> {
         // construct key
         let mut vote_tag = e.tags.clone();
         let mut event_id = "".to_string();
         let mut option_vote: Vec<String> = vec![];
         let event_symbol = "e".to_string();
-
+        let reader = self.inner.reader()?;
         // should be once in item
         for item in &mut vote_tag {
             if item.values.get(0).unwrap().to_string() == event_symbol {
                 event_id = item.values.get(1).unwrap().to_string();
             }
             if item.values.get(0).unwrap().to_string() == "poll_r".to_string() {
+                // option start with 1
                 for i in 1..=item.values.len() - 1 {
                     option_vote.push(item.values.get(i).unwrap().to_string());
                     println!("insert poll_r index {} , which is {}", i, item.values.get(i).unwrap().to_string());
@@ -134,10 +190,32 @@ impl ZchronodDb {
             }
         }
 
-        let key = format!("3041_{}_state", event_id);
-        println!("vote write key is {:?}", key.clone());
+        // check single mutil poll, single option vote len should be 1
+        let poll_event = match reader.get(&self.state, event_id.clone())? {
+            Some(t) => {
+                let event: Event = serde_json::from_slice(t).unwrap();
+                event
+            }
+            None => {
+                println!("find none in query_by_event_id");
+                info!("find none in query_by_event_id");
+                Event::default()
+            }
+        };
+
+        if poll_event.id.len() == 0 {
+            return Err(Error::Message("poll event id not found".to_string()));
+        }
+
+        if poll_event.tags[0].values[1].to_string() == "single".to_string() && option_vote.len() != 1 {
+            println!("vote option len should be 1 in single option vote, whose len is {:?}", option_vote.len());
+            info!("vote option len should be 1 in single option vote, whose len is {:?}", option_vote.len());
+            return Err(Error::Message("single option vote len should be 1".to_string()));
+        }
+
+        let key = format!("3041_{}_state", event_id.clone());
+        println!("vote write key is {:?}, should find this poll_key in db", key.clone());
         // read state, update, write
-        let reader = self.inner.reader()?;
 
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
         let mut op_read_state: OptionState = serde_json::from_str(state).unwrap();
@@ -151,45 +229,60 @@ impl ZchronodDb {
             }
         }
 
+        println!("after update vote {:?}", &op_read_state.option_vec);
+
         // write
         let mut writer = self.inner.writer()?;
         let wirte_json_string = serde_json::to_string(&op_read_state).unwrap();
-        writer.put(&self.state, key.to_string(), wirte_json_string);
+        writer.put(&self.state, key.to_string(), wirte_json_string).expect("failed to put vote state");
         writer.commit()?;
 
+        // test query poll_event state
+        drop(reader);
+        let state_poll = self.query_poll_event_state(event_id).unwrap();
+        println!("vote test state_poll is [{:?}]", state_poll);
         Ok(())
     }
 
-    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<String>, Error> {
+    pub fn query_poll_event_state(&self, event_id: String) -> Result<Vec<(String, i32)>, Error> {
         // construct key
         let key = format!("3041_{}_state", event_id);
         println!("vote write key is {:?}", key.clone());
-        let reader = self.inner.reader()?;
 
+        // bloom query
+        if !self.cache.lock().unwrap().validate_poll_event(key.clone()) {
+            info!("query_poll_event_state via bloom filter is none which id is [{:?}]",event_id.clone());
+            return Ok(vec![]);
+        }
+        let reader = self.inner.reader()?;
+        if reader.get(&self.state, key.clone())?.is_none() {
+            info!("query_poll_event_state is none which id is [{:?}]",event_id);
+            println!("query_poll_event_state is none which id is [{:?}]", event_id);
+            return Ok(vec![]);
+        }
         let state = std::str::from_utf8(reader.get(&self.state, key.to_string())?.unwrap()).unwrap();
 
-        let  op_state: OptionState = serde_json::from_str(state).unwrap();
-        let mut result:Vec<String> =vec![];
-        for element in op_state.option_vec{
-            result.push(element.0);
+        let op_state: OptionState = serde_json::from_str(state).unwrap();
+        let mut result: Vec<(String, i32)> = vec![];
+        for element in op_state.option_vec {
+            result.push(element);
         }
         Ok(result)
     }
-    pub fn query_all_event_id(&self) -> Result<(Vec<Vec<u8>>), Error> {
+    pub fn query_all_event_id(&self) -> Result<Vec<Vec<String>>, Error> {
         let reader = self.inner.reader()?;
-        match reader.get(&self.state, "poll_id".to_string())? {
+        return match reader.get(&self.state, "poll_id".to_string())? {
             Some(t) => {
-                let poll_id_list: Vec<Vec<u8>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
-                Ok::<Vec<Vec<u8>>, Error>(poll_id_list)
+                let poll_id_list: Vec<Vec<String>> = serde_json::from_str(std::str::from_utf8(t).unwrap()).unwrap();
+                println!("query all poll_event_id, {:?}", &poll_id_list);
+                Ok(poll_id_list)
             }
             None => {
                 println!("find none in query_all_event_id");
                 info!("find none in query_all_event_id");
                 Ok(vec![vec![]])
             }
-        }.expect("err in query_all_event_id");
-
-        Ok(vec![vec![]])
+        };
     }
 
     fn write_3041_db(&self, key: &str, option_state: HashMap<String, i32>) -> Result<(), Error> {
@@ -220,5 +313,18 @@ impl ZchronodDb {
         Ok(())
     }
 
-    fn query_by_event_id() {}
+    pub fn query_by_event_id(&self, event_id: String) -> Result<Event, Error> {
+        let reader = self.inner.reader()?;
+        return match reader.get(&self.state, event_id)? {
+            Some(t) => {
+                let event: Event = serde_json::from_slice(t).unwrap();
+                Ok(event)
+            }
+            None => {
+                println!("find none in query_by_event_id");
+                info!("find none in query_by_event_id");
+                Ok(Default::default())
+            }
+        };
+    }
 }

@@ -14,3 +14,4 @@ This chapter mainly introduces how to step by step modify the Nostr protocol and
 {% embed url="https://medium.com/nerd-for-tech/gossip-protocol-in-distributed-systems-e2b0665c7135" %}
 
 Next, we will introduce how to implement these innovative features on the nostr protocol step by step.
+
