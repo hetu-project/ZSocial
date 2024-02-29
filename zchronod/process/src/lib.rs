@@ -1,7 +1,7 @@
 use std::{fs, thread};
 use std::cmp::Ordering;
 use std::sync::{Arc, mpsc, Mutex, RwLock};
-use log::info;
+use log::{error, info};
 use network::{GossipServer, RpcServer};
 use api::{CONTEXT, NetworkInterface, Node};
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,7 @@ impl ZchronodServer {
         };
 
         println!("z-message construct ok, save to db, send to gossip");
-     //   if x.kind == 301 {}
+        //   if x.kind == 301 {}
 
         self.distribute_event_msg_to_db(x);
         let rt = Runtime::new();
@@ -91,24 +91,42 @@ impl ZchronodServer {
         if e.kind == 301 {
             println!("receive kind 301 poll");
             info!("receive kind 301 poll");
-            self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e);
-            return;
+           match self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e.clone()) {
+               Ok(_) => {}
+               Err(_) => {return;}
+           }
         }
 
         if e.kind == 309 {
-            println!("receive kind 309 poll");
-            info!("receive kind 309 poll");
-            self.z_db.write().unwrap().vote_write(e);
+            println!("receive kind 309 vote");
+            info!("receive kind 309 vote");
+            match self.z_db.write().unwrap().vote_write(e.clone()) {
+                Ok(_) => {}
+                Err(_) => { return; }
+            }
+        }
+
+        match self.z_db.write().unwrap().event_write(e.clone()) {
+            Ok(_) => {}
+            Err(_) => {
+                error!("event id duplicated");
+                println!("event id duplicated");
+                return;
+            }
         }
     }
 
     fn construct_poll_event_key(&self, e: Event) -> String {
         // key is 3041_event-id_state
         let event_id: Vec<u8> = e.id.clone();
-        println!("{:?}",event_id);
-        let event_id_str = String::from_utf8_lossy(&event_id);
-        let result = format!("3041_{}_state", event_id_str);
-        result
+        println!("{:?}", event_id);
+        let hex_string_back: String = hex::encode(e.id.clone());
+        println!("{:?}", &hex_string_back);
+        let constructed_string = format!("3041_{}_state", hex_string_back);
+        // let result: String = event_id.iter()
+        //     .map(|&num| num.to_string())
+        //     .collect();
+        constructed_string
     }
 
     pub fn handle_vlc_request(&self, vlc_meta: Vec<u8>) {
@@ -204,7 +222,7 @@ fn parse_config_file(file_path: &str) -> Result<Config, Box<dyn std::error::Erro
     Ok(config)
 }
 
-pub async fn init_chrono_node(config: &str) {
+pub fn init_chrono_node(config: &str) {
     println!("{} init_chrono_node", config);
     let conf = parse_config_file(config).unwrap();
     println!("i am {}", &conf.id);
@@ -215,12 +233,12 @@ pub async fn init_chrono_node(config: &str) {
     // CONTEXT = Some(api::Node::new(Box::new(network)));
 
 
-    run(gossip, rpc, conf.id).await;
+    run(gossip, rpc, conf.id);
     info!("[{}] zchronod service started",module_path!())
     // network::set().expect("TODO: panic message");
 }
 
-async fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
+fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
     println!("run");
 
     let sender = gossip.send.clone();
@@ -228,7 +246,7 @@ async fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
     let db = Arc::new(RwLock::new(storage::ZchronodDb::init().unwrap()));
     let db_rpc_service = Arc::clone(&db);
     //let consensus_clone = Arc::clone(&consensus);
-    rpc.run(gossip.send.clone(), consensus.receive(), db_rpc_service).await.expect("failed to run rpc");
+    rpc.run(gossip.send.clone(), consensus.receive(), db_rpc_service).expect("failed to run rpc");
     let (gossip_send, gossip_recv) = mpsc::channel::<(PeerId, Message)>();
     gossip.register_receive(gossip_send);
 
@@ -253,17 +271,13 @@ async fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
         }
     });
 
+    // tokio::spawn(async move {gossip.start();});
     thread::spawn(move || {
         let rt = Runtime::new().unwrap();
         rt.block_on(async { gossip.start().await })
     });
 
-    // let zchronod_server = ZchronodServer {
-    //     gossip_send: sender.clone(),
-    //     node_address: "".to_string(),
-    //     inner: Arc::new(Mutex::new(CoreZchronod { count: 0, clock: Default::default() })),
-    // };
-    // thread::spawn(move || {
+
     loop {
         consensus.receive.iter().for_each(|x| {
             println!("rpc receive here which is {:?}", x);
@@ -273,17 +287,6 @@ async fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
                 inner: inner_c.clone(),
                 z_db: db_c.clone(),
             };
-            // task1::block_on(
-            //     handle1.gossip_send.send(Event {
-            //         id: vec![],
-            //         pubkey: vec![],
-            //         created_at: 0,
-            //         kind: 0,
-            //         tags: vec![],
-            //         content: "".to_string(),
-            //         sig: vec![],
-            //     }));
-            // println!("from rpc sent to gossip network");
 
             thread::spawn(move || handle1.handle_rpc_msg(x));
         });

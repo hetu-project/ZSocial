@@ -103,7 +103,10 @@ pub enum IncomingMessage {
     Event(Event),
     Close(String),
     Req(Subscription),
-    Query(String),
+    /// nip-3041
+    Query(QueryPollState),
+    QueryPollList(String),
+    QueryEventMeta(String),
     /// nip-42
     Auth(Event),
     /// nip-45
@@ -121,6 +124,8 @@ impl IncomingMessage {
             IncomingMessage::Count(_) => "COUNT",
             IncomingMessage::Unknown(cmd, _) => cmd,
             IncomingMessage::Query(_) => "QUERY",
+            IncomingMessage::QueryPollList(_) => "QUERYPOLLLIST",
+            IncomingMessage::QueryEventMeta(_) => "QUERYEVENTMETA",
         }
     }
 
@@ -133,6 +138,8 @@ impl IncomingMessage {
             IncomingMessage::Count(_) => Some("COUNT"),
             IncomingMessage::Unknown(_, _) => None,
             IncomingMessage::Query(_) => Some("QUERY"),
+            IncomingMessage::QueryPollList(_) => Some("QUERYPOLLLIST"),
+            IncomingMessage::QueryEventMeta(_) => Some("QUERYEVENTMETA"),
         }
     }
 }
@@ -149,8 +156,8 @@ impl<'de> Visitor<'de> for MessageVisitor {
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
+        where
+            A: SeqAccess<'de>,
     {
         let t: &str = seq
             .next_element()?
@@ -182,6 +189,18 @@ impl<'de> Visitor<'de> for MessageVisitor {
                 let r = Vec::<Filter>::deserialize(de::value::SeqAccessDeserializer::new(seq))?;
                 Ok(IncomingMessage::Count(Subscription { id: t, filters: r }))
             }
+            "QUERY" => Ok(IncomingMessage::Query(
+                seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?,
+            )),
+            "QUERYPOLLLIST" => Ok(IncomingMessage::QueryPollList(
+                seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?,
+            )),
+            "QUERYEVENTMETA" => Ok(IncomingMessage::QueryEventMeta(
+                seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?,
+            )),
             _ => Ok(IncomingMessage::Unknown(
                 t.to_string(),
                 Vec::<Value>::deserialize(de::value::SeqAccessDeserializer::new(seq))?,
@@ -192,8 +211,8 @@ impl<'de> Visitor<'de> for MessageVisitor {
 
 impl<'de> Deserialize<'de> for IncomingMessage {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         deserializer.deserialize_seq(MessageVisitor(PhantomData))
     }
@@ -208,6 +227,12 @@ impl<'de> Deserialize<'de> for IncomingMessage {
 //     // Return unit as our 'Unknown' variant has no args
 //     Ok(())
 // }
+
+/// Query_poll_state
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct QueryPollState {
+    pub id: String,
+}
 
 /// Subscription
 #[derive(Clone, Debug)]
