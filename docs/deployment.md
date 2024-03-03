@@ -6,7 +6,7 @@
 
 ### 1. Download the git repository
 ```
-git clone https://github.com/fshif/ZSocial.git
+git clone https://github.com/hetu-project/ZSocial.git
 ```
 ### 2. Run the zchronod
 ```
