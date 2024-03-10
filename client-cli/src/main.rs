@@ -20,6 +20,39 @@
 #![allow(unused_variables)] // Todo
 #![allow(unused_imports)] // Todo
 
+use std::env;
+use std::fmt::{self, Debug};
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
+use std::net::SocketAddr;
+use std::panic;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use atty::Stream;
+// use mime::Mime;
+use chrono::Utc;
+// use bitcoin_hashes::sha256::Hash;
+use clap::{ColorChoice, CommandFactory, Parser, ValueEnum};
+use directories::ProjectDirs;
+use nostr_sdk::{bitcoin::hashes::sha256::Hash, Client, Contact, EventBuilder, EventId, nostr::event::kind::Kind, nostr::event::tag::TagKind, nostr::key::Keys, nostr::key::XOnlyPublicKey, nostr::message::ClientMessage, nostr::message::relay::RelayMessage, nostr::message::subscription::Filter, nostr::Metadata, nostr::nips::nip3041, nostr::prelude::core::time::Duration, nostr::types::time::Timestamp, nostr::UncheckedUrl, prelude::{FromBech32, FromSkStr, ToBech32}, relay::RelayPoolNotification, RelayPoolNotification::{Event, Message, RelayStatus, Shutdown, Stop}, Url};
+use nostr_sdk::nips::nip3041::{PollData, VoteData};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use thiserror::Error;
+use tracing::{debug, enabled, error, info, Level, trace, warn};
+use tracing_subscriber;
+use update_informer::{Check, registry};
+
+use args::Args;
+use credential::Credentials;
+use error::Error;
+use log::LogLevel;
+use output::Output;
+use relay::Relay;
+use version::Version;
+
 mod error;
 mod version;
 mod log;
@@ -30,37 +63,6 @@ mod credential;
 mod util;
 
 
-use atty::Stream;
-// use bitcoin_hashes::sha256::Hash;
-use clap::{ColorChoice, CommandFactory, Parser, ValueEnum};
-use directories::ProjectDirs;
-// use mime::Mime;
-use chrono::Utc;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::env;
-use std::fmt::{self, Debug};
-use std::fs::{self, File};
-use std::io::{self, Read, Write};
-use std::net::SocketAddr;
-use std::panic;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use thiserror::Error;
-use tracing::{debug, enabled, error, info, trace, warn, Level};
-use tracing_subscriber;
-use update_informer::{registry, Check};
-
-use nostr_sdk::{bitcoin::hashes::sha256::Hash, nostr::message::ClientMessage,nostr::event::kind::Kind, nostr::event::tag::TagKind, nostr::key::Keys, nostr::key::XOnlyPublicKey, nostr::message::relay::RelayMessage, nostr::message::subscription::Filter, nostr::prelude::core::time::Duration, nostr::types::time::Timestamp, nostr::Metadata, nostr::UncheckedUrl, prelude::{FromBech32, FromSkStr, ToBech32}, relay::RelayPoolNotification, Client, Contact, EventId, RelayPoolNotification::{Event, Message, RelayStatus, Shutdown, Stop}, Url, nostr::nips::nip3041, EventBuilder};
-use nostr_sdk::nips::nip3041::{PollData, VoteData};
-use error::Error;
-use version::Version;
-use log::LogLevel;
-use output::Output;
-use args::Args;
-use relay::Relay;
-use credential::Credentials;
 // /// import nostr-sdk Client related code of general kind: create_user, delete_user, etc // todo
 // mod client; // todo
 // use crate::client::dummy; // todo
@@ -619,9 +621,8 @@ pub(crate) fn cli_create_user(ap: &mut Args) -> Result<(), Error> {
 
 
 pub async fn cli_publish_poll(client: &Client, ap: &mut Args) -> Result<(), Error> {
-    
     let mut multi_select = false;
-    
+
     print!("Enter multi / single : ");
     std::io::stdout()
         .flush()
@@ -649,7 +650,7 @@ pub async fn cli_publish_poll(client: &Client, ap: &mut Args) -> Result<(), Erro
         }
     }
 
-    let mut title ="";
+    let mut title = "";
 
     print!("Enter a title : ");
     std::io::stdout()
@@ -712,7 +713,7 @@ pub async fn cli_publish_poll(client: &Client, ap: &mut Args) -> Result<(), Erro
     let my_keys = Keys::from_sk_str(&ap.creds.secret_key_bech32)?;
     let poll = PollData::new(multi_select, "0", &title, &info, &options);
     let poll_event: nostr_sdk::Event = EventBuilder::build_poll(poll.clone()).to_event(&my_keys).expect("REASON");
-    match  client.send_event(poll_event).await {
+    match client.send_event(poll_event).await {
         Ok(ref event_id) => print!(
             "Event_id {:?}",
             event_id
@@ -726,8 +727,7 @@ pub async fn cli_publish_poll(client: &Client, ap: &mut Args) -> Result<(), Erro
 
 
 pub async fn cli_make_vote(client: &Client, ap: &mut Args) -> Result<(), Error> {
-
-    let mut event_id ="";
+    let mut event_id = "";
 
     print!("Enter event id : ");
     std::io::stdout()
@@ -792,9 +792,9 @@ pub async fn cli_make_vote(client: &Client, ap: &mut Args) -> Result<(), Error> 
 
     let my_keys = Keys::from_sk_str(&ap.creds.secret_key_bech32)?;
     let event_id = EventId::from_hex(event_id).expect("REASON");
-    let vote = VoteData::new(event_id, &choices, &reason);
+    let vote = VoteData::new(event_id, &choices, (&reason).to_string());
     let vote_event: nostr_sdk::Event = EventBuilder::build_vote(vote.clone()).to_event(&my_keys).expect("REASON");
-    match  client.send_event(vote_event).await {
+    match client.send_event(vote_event).await {
         Ok(ref event_id) => print!(
             "Event_id {:?}",
             event_id
@@ -807,8 +807,7 @@ pub async fn cli_make_vote(client: &Client, ap: &mut Args) -> Result<(), Error> 
 }
 
 pub async fn cli_query_poll(client: &Client) -> Result<(), Error> {
-
-    let mut event_id ="";
+    let mut event_id = "";
 
     print!("Enter event id : ");
     std::io::stdout()
@@ -828,8 +827,8 @@ pub async fn cli_query_poll(client: &Client) -> Result<(), Error> {
         }
     }
     let event_id = EventId::from_hex(event_id).expect("REASON");
-    let msg = ClientMessage::Query {specific_sid: event_id};
-    match  client.send_msg(msg).await {
+    let msg = ClientMessage::Query { specific_sid: event_id };
+    match client.send_msg(msg).await {
         Ok(ref event_id) => print!(
             "Event_id {:?}",
             event_id
@@ -842,9 +841,8 @@ pub async fn cli_query_poll(client: &Client) -> Result<(), Error> {
 }
 
 pub async fn cli_get_sids(client: &Client) -> Result<(), Error> {
-
-    let msg = ClientMessage::Query_SID ;
-    match  client.send_msg(msg).await {
+    let msg = ClientMessage::Query_SID;
+    match client.send_msg(msg).await {
         Ok(ref event_id) => print!(
             "Event_id {:?}",
             event_id
@@ -1901,8 +1899,6 @@ async fn main() -> Result<(), Error> {
     }
 
 
-
-
     if ap.debug > 0 {
         // -d overwrites --log-level
         ap.log_level = LogLevel::Debug
@@ -2380,10 +2376,10 @@ async fn main() -> Result<(), Error> {
                     Message { relay_url: url, message: msg } => {
                         // debug!("Message: {:?}", msg);
                         match msg {
-                            RelayMessage::Closed{..} => {}
+                            RelayMessage::Closed { .. } => {}
 
-                            RelayMessage::NegMsg{..} => {}
-                            RelayMessage::NegErr{..} => {}
+                            RelayMessage::NegMsg { .. } => {}
+                            RelayMessage::NegErr { .. } => {}
 
                             RelayMessage::Ok { event_id, status, message } => {
                                 // Notification: ReceivedMessage(Ok { event_id: 123, status: true, message: "" })

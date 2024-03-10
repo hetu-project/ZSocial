@@ -1043,6 +1043,7 @@ checksum = "e664971378a3987224f7a0e10059782035e89899ae403718ee07de85bec42afe"
 [[package]]
 name = "nostr"
 version = "0.27.0"
+source = "git+https://github.com/NagaraTech/nostr#89eeb89aad9c1cc294dd917a62c3bed8ad614c1d"
 dependencies = [
  "aes",
  "base64",
@@ -1091,6 +1092,7 @@ dependencies = [
 [[package]]
 name = "nostr-database"
 version = "0.27.0"
+source = "git+https://github.com/NagaraTech/nostr#89eeb89aad9c1cc294dd917a62c3bed8ad614c1d"
 dependencies = [
  "async-trait",
  "nostr",
@@ -1102,6 +1104,7 @@ dependencies = [
 [[package]]
 name = "nostr-sdk"
 version = "0.27.0"
+source = "git+https://github.com/NagaraTech/nostr#89eeb89aad9c1cc294dd917a62c3bed8ad614c1d"
 dependencies = [
  "async-utility",
  "async-wsocket",

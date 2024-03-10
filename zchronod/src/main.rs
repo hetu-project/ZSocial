@@ -1,10 +1,10 @@
-mod cli;
-
 use std::{env, error};
-use clap::{crate_description, crate_name, ArgMatches};
+
+use clap::{ArgMatches, crate_description, crate_name};
+
 use crate::cli::set_clap;
-use tokio::runtime::Runtime;
-use api::RT;
+
+mod cli;
 
 async fn loop1() {
     println!("ii");
@@ -15,7 +15,7 @@ async fn loop1() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn error::Error>> {
-   //proto::build::set().expect("failed to make proto");
+    //proto::build::set().expect("failed to make proto");
 
     // env::set_var("RUST_LOG", "debug");
     // loop1().await;

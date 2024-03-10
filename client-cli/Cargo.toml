@@ -21,7 +21,7 @@ publish = true
 anyhow = "1.0"
 # 0.20
 #download from https://github.com/bai123-123/nostr.git
-nostr-sdk = { path = "../../nostr/crates/nostr-sdk"}
+nostr-sdk = { git = "https://github.com/NagaraTech/nostr" }
 tokio = { version = "1.33", features = ["full"] }
 clap = { version = "4.4", features = ["derive", "color", "wrap_help", "unicode"] }
 thiserror = "1.0"
