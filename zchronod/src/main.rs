@@ -1,17 +1,11 @@
 use std::{env, error};
+use std::path::PathBuf;
 
 use clap::{ArgMatches, crate_description, crate_name};
 
 use crate::cli::set_clap;
 
 mod cli;
-
-async fn loop1() {
-    println!("ii");
-    loop {
-        println!("in lloop1");
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn error::Error>> {
@@ -42,7 +36,9 @@ fn process_cmd(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
     } else {
         zchronod_logger::init_zhronod_log_with_default()
     }
-    let config = matches.value_of("config").unwrap_or("./chronod.yaml");
+    let mut config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    config_path = config_path.join("chronod.yaml");
+    let config = matches.value_of("config").unwrap_or(config_path.to_str().unwrap());
     process::init_chrono_node(config);
     Ok(())
 }

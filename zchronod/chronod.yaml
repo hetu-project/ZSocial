@@ -11,3 +11,5 @@ rpc:
 
 gossip:
   port: /ip4/0.0.0.0/tcp/20020
+
+db: db

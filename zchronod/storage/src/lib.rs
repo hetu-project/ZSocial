@@ -40,8 +40,8 @@ impl ZchronodDb {
     // k : 3041_event-id_state
     // v:  event_state
     // event_state is  map[option_name]vote_num, event
-    pub fn init() -> Result<Self> {
-        let lmdb = Db::open("./db")?;
+    pub fn new(db_path: String) -> Result<Self> {
+        let lmdb = Db::open(db_path)?;
         let state = lmdb.open_tree(Some(TREE_NAME), 0)?;
         let cache = Arc::new(Mutex::new(
             Cache::new(&lmdb, &state)
