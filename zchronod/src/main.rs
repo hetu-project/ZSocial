@@ -1,21 +1,15 @@
-mod cli;
-
 use std::{env, error};
-use clap::{crate_description, crate_name, ArgMatches};
-use crate::cli::set_clap;
-use tokio::runtime::Runtime;
-use api::RT;
+use std::path::PathBuf;
 
-async fn loop1() {
-    println!("ii");
-    loop {
-        println!("in lloop1");
-    }
-}
+use clap::{ArgMatches, crate_description, crate_name};
+
+use crate::cli::set_clap;
+
+mod cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn error::Error>> {
-   //proto::build::set().expect("failed to make proto");
+    //proto::build::set().expect("failed to make proto");
 
     // env::set_var("RUST_LOG", "debug");
     // loop1().await;
@@ -42,7 +36,9 @@ fn process_cmd(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
     } else {
         zchronod_logger::init_zhronod_log_with_default()
     }
-    let config = matches.value_of("config").unwrap_or("./chronod.yaml");
+    let mut config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    config_path = config_path.join("chronod.yaml");
+    let config = matches.value_of("config").unwrap_or(config_path.to_str().unwrap());
     process::init_chrono_node(config);
     Ok(())
 }

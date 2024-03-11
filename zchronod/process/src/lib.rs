@@ -1,31 +1,30 @@
 use std::{fs, thread};
 use std::cmp::Ordering;
-use std::sync::{Arc, mpsc, Mutex, RwLock};
-use log::{error, info};
-use network::{GossipServer, RpcServer};
-use api::{CONTEXT, NetworkInterface, Node};
-use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{Read};
+use std::io::Read;
+use std::sync::{Arc, mpsc, Mutex, RwLock};
 use std::sync::mpsc::{channel, Sender};
+
 use async_std::io::Write;
+use async_std::task as task1;
+use bytes::Bytes;
+use libp2p::{
+    gossipsub,
+    gossipsub::Message,
+    mdns, Multiaddr,
+    noise,
+    PeerId, swarm::{NetworkBehaviour, SwarmEvent}, Swarm, tcp, yamux,
+};
+use log::{error, info};
+use prost::Message as m1;
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use tokio::task;
-use proto::zchronod::Event;
-use async_std::task as task1;
-use chronod::clock::{Clock, VlcMeta, VlcMsg, ZMessage};
-use bytes::Bytes;
-use prost::Message as m1;
 
-use {
-    libp2p::{
-        gossipsub,
-        gossipsub::Message,
-        mdns, noise,
-        swarm::{NetworkBehaviour, SwarmEvent},
-        tcp, yamux, Multiaddr, PeerId, Swarm,
-    },
-};
+use api::{CONTEXT, NetworkInterface, Node};
+use chronod::clock::{Clock, VlcMeta, VlcMsg, ZMessage};
+use network::{GossipServer, RpcServer};
+use proto::zchronod::Event;
 use proto::zchronod::zchronod_server::Zchronod;
 use storage::ZchronodDb;
 
@@ -91,10 +90,10 @@ impl ZchronodServer {
         if e.kind == 301 {
             println!("receive kind 301 poll");
             info!("receive kind 301 poll");
-           match self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e.clone()) {
-               Ok(_) => {}
-               Err(_) => {return;}
-           }
+            match self.z_db.write().unwrap().poll_write(self.construct_poll_event_key(e.clone()), e.clone()) {
+                Ok(_) => {}
+                Err(_) => { return; }
+            }
         }
 
         if e.kind == 309 {
@@ -204,6 +203,7 @@ struct Config {
     peers: Vec<String>,
     rpc: RpcConfig,
     gossip: GossipConfig,
+    db: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -231,19 +231,18 @@ pub fn init_chrono_node(config: &str) {
     let gossip = GossipServer::new(&conf.peers, &conf.gossip.port);
     let rpc = RpcServer::new(&conf.rpc.port);
     // CONTEXT = Some(api::Node::new(Box::new(network)));
+    let db = Arc::new(RwLock::new(ZchronodDb::new(conf.db).unwrap()));
 
-
-    run(gossip, rpc, conf.id);
+    run(gossip, db, rpc, conf.id);
     info!("[{}] zchronod service started",module_path!())
     // network::set().expect("TODO: panic message");
 }
 
-fn run(mut gossip: GossipServer<ZMessage>, rpc: RpcServer, id: String) {
+fn run(mut gossip: GossipServer<ZMessage>, db: Arc<RwLock<ZchronodDb>>, rpc: RpcServer, id: String) {
     println!("run");
 
     let sender = gossip.send.clone();
     let consensus = Arc::new(chronod::init());
-    let db = Arc::new(RwLock::new(storage::ZchronodDb::init().unwrap()));
     let db_rpc_service = Arc::clone(&db);
     //let consensus_clone = Arc::clone(&consensus);
     rpc.run(gossip.send.clone(), consensus.receive(), db_rpc_service).expect("failed to run rpc");

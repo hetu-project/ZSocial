@@ -1,21 +1,20 @@
-
-mod bloomfilter;
-mod cache;
-
 use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
-use nostr_kv::lmdb::Db;
 
-use cache::Cache;
-use nostr_kv::{Error, lmdb::{Db as Lmdb, Iter as LmdbIter, *}, scanner::{Group, GroupItem, MatchResult, Scanner}};
-use proto::zchronod::Event;
-
-use serde::{Serialize, Deserialize};
 use log::info;
+use serde::{Deserialize, Serialize};
 //use log::kv::ToKey;
 use serde::de::Unexpected::Str;
+
+use cache::Cache;
+use nostr_kv::{Error, lmdb::{*, Db as Lmdb, Iter as LmdbIter}, scanner::{Group, GroupItem, MatchResult, Scanner}};
+use nostr_kv::lmdb::Db;
+use proto::zchronod::Event;
+
+mod bloomfilter;
+mod cache;
 
 pub struct ZchronodDb {
     inner: Db,
@@ -41,8 +40,8 @@ impl ZchronodDb {
     // k : 3041_event-id_state
     // v:  event_state
     // event_state is  map[option_name]vote_num, event
-    pub fn init() -> Result<Self> {
-        let lmdb = Db::open("./db")?;
+    pub fn new(db_path: String) -> Result<Self> {
+        let lmdb = Db::open(db_path)?;
         let state = lmdb.open_tree(Some(TREE_NAME), 0)?;
         let cache = Arc::new(Mutex::new(
             Cache::new(&lmdb, &state)
@@ -50,7 +49,6 @@ impl ZchronodDb {
         Ok(ZchronodDb {
             inner: lmdb,
             state,
-            //   cache,
             cache,
         })
     }
